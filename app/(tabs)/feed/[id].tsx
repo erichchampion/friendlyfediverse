@@ -121,6 +121,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Track first visible post for view transitions
   const firstVisiblePostIdRef = useRef<string | null>(null);
+  const firstVisibleGridPostIdRef = useRef<string | null>(null); // Track first visible post in grid view
 
   // Helper to scroll with InteractionManager wrapper
   const scrollToPosition = useCallback(
@@ -244,7 +245,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
             flashListRef.current?.scrollToIndex({
               index: headerIndex,
               animated: false,
-              viewPosition: 0.5, // Center the post in viewport
+              viewPosition: 0, // Position header at top of viewport
             });
           }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
         });
@@ -605,7 +606,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Handle view toggle (list <-> grid)
   const handleViewToggle = useCallback(() => {
     if (!isGridView) {
-      // Switching from list to grid: save the first visible post
+      // Switching from list to grid: save the first visible post from list view
       const visiblePostId =
         firstVisiblePostIdRef.current ||
         (displayPosts.length > 0 ? displayPosts[0].id : null);
@@ -613,8 +614,13 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         currentPostIdRef.current = visiblePostId;
       }
     } else {
-      // Switching from grid to list: clear currentPostIdRef to allow fresh scroll in list view
-      currentPostIdRef.current = null;
+      // Switching from grid to list: save the first visible post from grid view
+      const visiblePostId =
+        firstVisibleGridPostIdRef.current ||
+        (displayPosts.length > 0 ? displayPosts[0].id : null);
+      if (visiblePostId) {
+        currentPostIdRef.current = visiblePostId;
+      }
     }
 
     // Toggle view
@@ -633,6 +639,26 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       }
     }
   }, [isRefreshing, isLoading, reload, isGridView, displayPosts]);
+
+  // Wrap the feed's viewable items callback to track first visible post in grid view
+  const handleGridViewableItemsChanged = useCallback(
+    (info: { viewableItems: { index: number | null; item: any }[]; changed: any[] }) => {
+      // Track first visible post in grid view for view transitions
+      if (info.viewableItems.length > 0 && info.viewableItems[0]?.item) {
+        const firstItem = info.viewableItems[0].item;
+        // The item is a Post object from the grid view
+        if (firstItem.id) {
+          firstVisibleGridPostIdRef.current = firstItem.id;
+        }
+      }
+
+      // Call the original callback for proactive loading
+      if (feedHandleViewableItemsChanged) {
+        feedHandleViewableItemsChanged(info);
+      }
+    },
+    [feedHandleViewableItemsChanged]
+  );
 
   // Handle media press in grid view
   const handleMediaPress = useCallback(
@@ -829,7 +855,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           isRefreshing={isRefreshing}
           isLoadingMore={isLoadingMore}
           scrollToPostId={currentPostIdRef.current}
-          onViewableItemsChanged={feedHandleViewableItemsChanged}
+          onViewableItemsChanged={handleGridViewableItemsChanged}
           scrollToTopSignal={gridScrollSignal}
         />
       ) : !isTransitioning ? (
