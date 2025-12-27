@@ -46,9 +46,10 @@ export const UI_CONFIG = {
   PROFILE_MAX_FIELDS: 4,
   VISIBILITY_UPDATE_INTERVAL: 2000, // ms
   VISIBILITY_BUFFER_RATIO: 0.5, // proportion of viewport added above/below when checking visibility
-  SCROLL_DEBOUNCE_DELAY: 1000, // ms
+  SCROLL_DEBOUNCE_DELAY: 1000, // ms - debounce for pagination and end reached
   SCROLL_RECOVERY_DELAY: 100, // ms
   SCROLL_RESTORE_MAX_ATTEMPTS: 3, // number of retries when waiting for layout measurement
+  PAGINATION_THRESHOLD: 200, // px from bottom to trigger pagination
   PROACTIVE_LOAD_CHECK_INTERVAL: 1000, // ms - interval for checking visible posts changes for proactive loading
   // Grid view scroll positioning
   GRID_SCROLL_PADDING_MAX: 50, // Maximum padding offset in pixels for grid scroll positioning

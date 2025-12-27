@@ -200,7 +200,10 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Phase 1: Estimated layouts for all posts (pre-render)
   // Pre-populate estimates so scroll calculations work immediately
+  // Only run for list view - grid view doesn't use these layouts
   useEffect(() => {
+    if (isGridView) return;
+
     displayPosts.forEach((post, index) => {
       if (!postLayoutsRef.current.has(post.id)) {
         const estimatedY = index * averagePostHeightRef.current;
@@ -286,7 +289,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     prevPostsRef.current = posts;
   }, [posts, isGridView]);
 
-  // Remove stale layout entries when posts change
+  // Remove stale layout entries when posts change or view switches
   useEffect(() => {
     const validIds = new Set(displayPosts.map((p) => p.id));
     const validItemIds = new Set(
@@ -300,13 +303,20 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       }
     });
 
-    // Clean up item layouts (headers and content)
-    itemLayoutsRef.current.forEach((_, id) => {
-      if (!validItemIds.has(id)) {
-        itemLayoutsRef.current.delete(id);
+    // Clean up item layouts (headers and content) - only relevant for list view
+    if (!isGridView) {
+      itemLayoutsRef.current.forEach((_, id) => {
+        if (!validItemIds.has(id)) {
+          itemLayoutsRef.current.delete(id);
+        }
+      });
+    } else {
+      // Clear all item layouts when switching to grid view since they're not used
+      if (itemLayoutsRef.current.size > 0) {
+        itemLayoutsRef.current.clear();
       }
-    });
-  }, [displayPosts]);
+    }
+  }, [displayPosts, isGridView]);
 
   // Update visibility tracking based on scroll position (for lazy loading)
   // Throttled to prevent excessive updates
@@ -411,19 +421,27 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       const headerLayout = itemLayoutsRef.current.get(`${postId}-header`);
       const contentLayout = itemLayoutsRef.current.get(`${postId}-content`);
 
-      if (headerLayout && contentLayout) {
+      // Use partial measurements with fallback for race condition safety
+      if (headerLayout || contentLayout) {
+        const estimatedItemHeight = averagePostHeightRef.current / 2;
+        const totalHeight =
+          (headerLayout?.height || estimatedItemHeight) +
+          (contentLayout?.height || estimatedItemHeight);
+
         postLayoutsRef.current.set(postId, {
-          y: headerLayout.y,
-          height: headerLayout.height + contentLayout.height,
+          y: headerLayout?.y || contentLayout?.y || 0,
+          height: totalHeight,
         });
 
-        // Update average for estimatedItemSize
-        const heights = Array.from(postLayoutsRef.current.values()).map(
-          (l) => l.height,
-        );
-        if (heights.length > 0) {
-          averagePostHeightRef.current =
-            heights.reduce((sum, h) => sum + h, 0) / heights.length;
+        // Only update average when we have complete measurements
+        if (headerLayout && contentLayout) {
+          const heights = Array.from(postLayoutsRef.current.values()).map(
+            (l) => l.height,
+          );
+          if (heights.length > 0) {
+            averagePostHeightRef.current =
+              heights.reduce((sum, h) => sum + h, 0) / heights.length;
+          }
         }
       }
 
@@ -446,40 +464,6 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }
   }, [pendingNewCount, applyPendingNewPosts, isGridView]);
-
-  // Render a single post (header + content)
-  // Simplified for ScrollView - no sections needed
-  const renderPost = useCallback(
-    (post: Post, index: number) => {
-      if (!post || !post.id) return null;
-
-      // Use state for visibility to enable re-renders when visibility changes
-      // This ensures videos autoplay and media loads when posts scroll into view
-      const isVisible = visibleSections.has(post.id);
-
-      return (
-        <View
-          key={post.id}
-          onLayout={(event: LayoutChangeEvent) =>
-            handlePostLayout(post.id, event.nativeEvent.layout)
-          }
-        >
-          <PostSectionHeader
-            post={post}
-            onDelete={handlePostDelete}
-            onUpdate={handlePostUpdate}
-          />
-          <PostSectionContent
-            post={post}
-            isVisible={isVisible}
-            onDelete={handlePostDelete}
-            onUpdate={handlePostUpdate}
-          />
-        </View>
-      );
-    },
-    [handlePostDelete, handlePostLayout, handlePostUpdate, visibleSections],
-  );
 
   // FlashList render item wrapper - handles header and content items separately
   const renderFlashListItem = useCallback(
@@ -575,9 +559,8 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       updateVisiblePosts(scrollY, viewportHeight);
 
       // Check if near bottom (similar to grid view)
-      const paddingToBottom = 200; // Trigger pagination when 200px from bottom
       const isNearBottom =
-        viewportHeight + scrollY >= contentHeight - paddingToBottom;
+        viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
 
       if (isNearBottom && !isLoadingMore && hasMore) {
         const now = Date.now();

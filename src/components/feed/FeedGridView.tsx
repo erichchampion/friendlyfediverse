@@ -201,6 +201,7 @@ export function FeedGridView({
 }: FeedGridViewProps) {
   const { colors } = useTheme();
   const [visibleItems, setVisibleItems] = useState<Set<string>>(new Set());
+  const visibleItemsRef = useRef<Set<string>>(new Set());
   const scrollViewRef = useRef<ScrollView>(null);
   const lastScrollSignalRef = useRef<number | null>(null);
   const lastScrolledToPostIdRef = useRef<string | null>(null); // Track what we've scrolled to
@@ -251,9 +252,8 @@ export function FeedGridView({
   // Helper to determine if the user is near the bottom of the scrollable area
   const isNearBottom = useCallback(
     (metrics: { scrollY: number; viewportHeight: number; contentHeight: number }) => {
-      const paddingToBottom = 200; // Trigger pagination when 200px from bottom
       const { scrollY, viewportHeight, contentHeight } = metrics;
-      return viewportHeight + scrollY >= contentHeight - paddingToBottom;
+      return viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
     },
     [],
   );
@@ -447,7 +447,7 @@ export function FeedGridView({
 
       // Buffer zone for visibility tracking (media loading/autoplay)
       // Smaller buffer than list view's windowSize since grid renders all items anyway
-      const bufferZone = viewportHeight * 0.5; // 50% buffer on each side
+      const bufferZone = viewportHeight * UI_CONFIG.VISIBILITY_BUFFER_RATIO;
       const visibleTop = Math.max(0, scrollY - bufferZone);
       const visibleBottom = scrollY + viewportHeight + bufferZone;
 
@@ -488,30 +488,36 @@ export function FeedGridView({
   // Scroll to target post when switching to grid view
   // Allow re-scrolling if content height has increased significantly (layout changed)
   useEffect(() => {
+    // Clear any pending retry timeout when scrollToPostId changes or component unmounts
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
     // Reset lastScrolledToPostIdRef when scrollToPostId changes (new transition)
     if (scrollToPostId && scrollToPostId !== lastScrolledToPostIdRef.current) {
       lastScrolledToPostIdRef.current = null;
       lastScrollContentHeightRef.current = 0;
     }
-    
+
     // Check if we should scroll:
     // 1. scrollToPostId is set
     // 2. We have grid items
     // 3. Either we haven't scrolled to this post yet, OR content height has increased significantly (layout changed)
     const contentHeight = lastScrollMetricsRef.current.contentHeight;
-    const contentHeightIncreased = contentHeight > 0 && 
+    const contentHeightIncreased = contentHeight > 0 &&
       lastScrollContentHeightRef.current > 0 &&
       contentHeight > lastScrollContentHeightRef.current * 1.2; // 20% increase indicates significant layout change
-    
+
     const shouldScroll = scrollToPostId &&
       gridItems.length > 0 &&
       scrollViewRef.current &&
       (scrollToPostId !== lastScrolledToPostIdRef.current || contentHeightIncreased);
-    
+
     if (shouldScroll) {
-      // Find the first grid item for this post
+      // Find the first grid item for this post (check both feedItemId and displayPostId for reblogs)
       const targetItem = gridItems.find(
-        (item) => item.feedItemId === scrollToPostId,
+        (item) => item.feedItemId === scrollToPostId || item.displayPostId === scrollToPostId,
       );
 
       if (targetItem) {
@@ -581,7 +587,15 @@ export function FeedGridView({
       // If post not found, don't mark as scrolled - allow retry when new items load via pagination
       // The effect will re-run when gridItems changes, enabling automatic retry
     }
-  }, [scrollToPostId, gridItems, columns]);
+
+    // Cleanup function to clear retry timeout on unmount or dependency change
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+  }, [scrollToPostId, gridItems, columns, onItemOffset]);
 
   useEffect(() => {
     if (
@@ -633,21 +647,31 @@ export function FeedGridView({
   // Handler to measure actual item positions using measureInWindow
   const handleItemLayout = useCallback((itemId: string, ref: any) => {
     if (!ref) return;
-    
+
     // Use measureInWindow to get absolute position, then convert to ScrollView-relative
-    ref.measureInWindow((x: number, y: number, width: number, height: number) => {
+    ref.measureInWindow?.((x: number, y: number, width: number, height: number) => {
+      // Validate measurements
+      if (typeof y !== 'number' || y < 0 || typeof height !== 'number' || height <= 0) {
+        return;
+      }
+
       // We need the position relative to the ScrollView content, not the window
       // measureInWindow gives us window-relative position
       // We need to measure the ScrollView's position in window and subtract
       if (scrollViewRef.current) {
-        scrollViewRef.current.measureInWindow((scrollX: number, scrollY: number) => {
+        scrollViewRef.current.measureInWindow?.((scrollX: number, scrollY: number) => {
+          // Validate scroll view measurements
+          if (typeof scrollY !== 'number' || scrollY < 0) {
+            return;
+          }
+
           // Get current scroll position
           const scrollOffset = lastScrollMetricsRef.current.scrollY;
           // Calculate position relative to ScrollView content
           // y from measureInWindow is window-relative, scrollY is also window-relative
           // We need content-relative position = (item window y - scrollView window y) + scrollOffset
           const contentRelativeY = (y - scrollY) + scrollOffset;
-          
+
           actualItemPositionsRef.current.set(itemId, { y: contentRelativeY, height });
         });
       }
@@ -893,11 +917,12 @@ export function FeedGridView({
 
         const newVisibleItems = calculateVisibleItems(scrollY, viewportHeight);
 
-        // Only update state if the visible set actually changed
+        // Only update state if the visible set actually changed (use ref to avoid stale closure)
         if (
-          newVisibleItems.size !== visibleItems.size ||
-          ![...newVisibleItems].every((id) => visibleItems.has(id))
+          newVisibleItems.size !== visibleItemsRef.current.size ||
+          ![...newVisibleItems].every((id) => visibleItemsRef.current.has(id))
         ) {
+          visibleItemsRef.current = newVisibleItems;
           setVisibleItems(newVisibleItems);
         }
 
