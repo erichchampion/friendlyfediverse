@@ -411,29 +411,36 @@ export function FeedGridView({
     });
 
     if (removedPositions.length > 0 && scrollViewRef.current) {
-      // Sum removed heights per column to approximate vertical shift
-      const removedByColumn = Array(COLUMN_COUNT).fill(0);
-      removedPositions.forEach((pos) => {
-        removedByColumn[pos.columnIndex] += pos.height + GRID_GAP;
-      });
+      // Skip scroll compensation if user is near the bottom loading more posts
+      // They want to see the new posts, not jump back up
+      const metrics = lastScrollMetricsRef.current;
+      const userIsNearBottom = isNearBottom(metrics);
 
-      const shift = Math.max(...removedByColumn);
-      if (shift > 0) {
-        const currentY = lastScrollMetricsRef.current.scrollY;
-        const nextY = Math.max(0, currentY - shift);
-        scrollViewRef.current.scrollTo({ y: nextY, animated: false });
-        lastScrollMetricsRef.current = {
-          ...lastScrollMetricsRef.current,
-          scrollY: nextY,
-        };
-        // Mark that we compensated to prevent double compensation in onContentSizeChange
-        lastCompensationRef.current = Date.now();
+      if (!userIsNearBottom) {
+        // Sum removed heights per column to approximate vertical shift
+        const removedByColumn = Array(COLUMN_COUNT).fill(0);
+        removedPositions.forEach((pos) => {
+          removedByColumn[pos.columnIndex] += pos.height + GRID_GAP;
+        });
+
+        const shift = Math.max(...removedByColumn);
+        if (shift > 0) {
+          const currentY = lastScrollMetricsRef.current.scrollY;
+          const nextY = Math.max(0, currentY - shift);
+          scrollViewRef.current.scrollTo({ y: nextY, animated: false });
+          lastScrollMetricsRef.current = {
+            ...lastScrollMetricsRef.current,
+            scrollY: nextY,
+          };
+          // Mark that we compensated to prevent double compensation in onContentSizeChange
+          lastCompensationRef.current = Date.now();
+        }
       }
     }
 
     // Update previous positions snapshot
     previousItemPositionsRef.current = new Map(itemPositionsRef.current);
-  }, [gridItems]);
+  }, [gridItems, isNearBottom]);
 
   // Create mapping from wrapper postId to post index for proactive loading
   const postIdToIndexMap = useMemo(() => {
@@ -1048,8 +1055,15 @@ export function FeedGridView({
 
         // If content height shrinks (e.g., posts trimmed from top), compensate scroll to avoid jumps
         // Skip if we already compensated in the items effect (within last 100ms)
+        // Also skip if user is near bottom loading more posts
         const timeSinceLastCompensation = Date.now() - lastCompensationRef.current;
-        if (heightDelta > 0 && scrollViewRef.current && timeSinceLastCompensation > 100) {
+        const userIsNearBottom = isNearBottom(lastScrollMetricsRef.current);
+        if (
+          heightDelta > 0 &&
+          scrollViewRef.current &&
+          timeSinceLastCompensation > 100 &&
+          !userIsNearBottom
+        ) {
           const currentY = lastScrollMetricsRef.current.scrollY;
           const nextY = Math.max(0, currentY - heightDelta);
           scrollViewRef.current.scrollTo({
