@@ -6,6 +6,8 @@ import {
   Dimensions,
   Text,
   RefreshControl,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { Image } from "expo-image";
@@ -206,7 +208,8 @@ export function FeedGridView({
   const lastScrollSignalRef = useRef<number | null>(null);
   const lastScrolledToPostIdRef = useRef<string | null>(null); // Track what we've scrolled to
   const lastScrollContentHeightRef = useRef<number>(0); // Track content height when we last scrolled
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Track retry timeout for cleanup
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Track retry timeout for cleanup
+  const lastCompensationRef = useRef<number>(0); // Track when we last compensated scroll to prevent double compensation
   const [isAtEnd, setIsAtEnd] = useState(false);
 
   // Store item positions for visibility tracking (estimated from distributeItemsToColumns)
@@ -220,6 +223,8 @@ export function FeedGridView({
   const actualItemPositionsRef = useRef<
     Map<string, { y: number; height: number }>
   >(new Map());
+  // Track which items have been measured to avoid redundant measurements
+  const measuredItemsRef = useRef<Set<string>>(new Set());
   // Persist column choices to avoid reshuffling when items are trimmed/added
   const itemColumnMapRef = useRef<Map<string, number>>(new Map());
   const lastVisibilityUpdateRef = useRef<number>(0);
@@ -232,10 +237,19 @@ export function FeedGridView({
   // Track visible posts for proactive loading
   const visiblePostsRef = useRef<Set<string>>(new Set());
   const lastProactiveLoadCheckRef = useRef<number>(0);
-  const endReachedResetRef = useRef<NodeJS.Timeout | null>(null);
+  const endReachedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use centralized HTML utility
   const stripHtmlTags = stripHtml;
+
+  // Helper function for efficient Set comparison (avoids array spread in hot path)
+  const setsEqual = useCallback((a: Set<string>, b: Set<string>) => {
+    if (a.size !== b.size) return false;
+    for (const item of a) {
+      if (!b.has(item)) return false;
+    }
+    return true;
+  }, []);
 
   // Clear timers on unmount to avoid leaks
   useEffect(() => {
@@ -363,6 +377,7 @@ export function FeedGridView({
     actualItemPositionsRef.current.forEach((_, itemId) => {
       if (!currentIds.has(itemId)) {
         actualItemPositionsRef.current.delete(itemId);
+        measuredItemsRef.current.delete(itemId);
       }
     });
     // Clean up refs as well
@@ -411,6 +426,8 @@ export function FeedGridView({
           ...lastScrollMetricsRef.current,
           scrollY: nextY,
         };
+        // Mark that we compensated to prevent double compensation in onContentSizeChange
+        lastCompensationRef.current = Date.now();
       }
     }
 
@@ -426,6 +443,13 @@ export function FeedGridView({
     });
     return map;
   }, [posts]);
+
+  // Pre-compute itemId to feedItemId map for efficient visibility tracking
+  const itemIdToFeedItemIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    gridItems.forEach((item) => map.set(item.id, item.feedItemId));
+    return map;
+  }, [gridItems]);
 
   // Create mapping from display postId (handles reblogs) to post for checking favorited status
   const postIdToPostMap = useMemo(() => {
@@ -696,8 +720,12 @@ export function FeedGridView({
         const itemRef = (ref: any) => {
           if (ref) {
             itemRefsRef.current.set(item.id, ref);
-            // Measure position after ref is set
-            setTimeout(() => handleItemLayout(item.id, ref), 0);
+            // Only measure if we haven't measured this item yet
+            if (!measuredItemsRef.current.has(item.id)) {
+              measuredItemsRef.current.add(item.id);
+              // Measure position after ref is set
+              setTimeout(() => handleItemLayout(item.id, ref), 0);
+            }
           }
         };
 
@@ -748,8 +776,12 @@ export function FeedGridView({
         const itemRef = (ref: any) => {
           if (ref) {
             itemRefsRef.current.set(item.id, ref);
-            // Measure position after ref is set
-            setTimeout(() => handleItemLayout(item.id, ref), 0);
+            // Only measure if we haven't measured this item yet
+            if (!measuredItemsRef.current.has(item.id)) {
+              measuredItemsRef.current.add(item.id);
+              // Measure position after ref is set
+              setTimeout(() => handleItemLayout(item.id, ref), 0);
+            }
           }
         };
 
@@ -893,7 +925,7 @@ export function FeedGridView({
 
   // Handle scroll event for pagination and visibility tracking
   const handleScroll = useCallback(
-    (event: any) => {
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } =
         event.nativeEvent;
       const scrollY = contentOffset.y;
@@ -918,21 +950,18 @@ export function FeedGridView({
         const newVisibleItems = calculateVisibleItems(scrollY, viewportHeight);
 
         // Only update state if the visible set actually changed (use ref to avoid stale closure)
-        if (
-          newVisibleItems.size !== visibleItemsRef.current.size ||
-          ![...newVisibleItems].every((id) => visibleItemsRef.current.has(id))
-        ) {
+        if (!setsEqual(newVisibleItems, visibleItemsRef.current)) {
           visibleItemsRef.current = newVisibleItems;
           setVisibleItems(newVisibleItems);
         }
 
         // 2. Track visible posts for proactive loading
-        // Convert visible grid items to visible posts
+        // Convert visible grid items to visible posts using pre-computed map
         const newVisiblePosts = new Set<string>();
         newVisibleItems.forEach((itemId) => {
-          const gridItem = gridItems.find((item) => item.id === itemId);
-          if (gridItem) {
-            newVisiblePosts.add(gridItem.feedItemId);
+          const feedItemId = itemIdToFeedItemIdMap.get(itemId);
+          if (feedItemId) {
+            newVisiblePosts.add(feedItemId);
           }
         });
 
@@ -944,11 +973,10 @@ export function FeedGridView({
             UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
-          const visiblePostsChanged =
-            newVisiblePosts.size !== visiblePostsRef.current.size ||
-            ![...newVisiblePosts].every((id) =>
-              visiblePostsRef.current.has(id),
-            );
+          const visiblePostsChanged = !setsEqual(
+            newVisiblePosts,
+            visiblePostsRef.current,
+          );
 
           if (visiblePostsChanged) {
             visiblePostsRef.current = newVisiblePosts;
@@ -1019,7 +1047,9 @@ export function FeedGridView({
         };
 
         // If content height shrinks (e.g., posts trimmed from top), compensate scroll to avoid jumps
-        if (heightDelta > 0 && scrollViewRef.current) {
+        // Skip if we already compensated in the items effect (within last 100ms)
+        const timeSinceLastCompensation = Date.now() - lastCompensationRef.current;
+        if (heightDelta > 0 && scrollViewRef.current && timeSinceLastCompensation > 100) {
           const currentY = lastScrollMetricsRef.current.scrollY;
           const nextY = Math.max(0, currentY - heightDelta);
           scrollViewRef.current.scrollTo({

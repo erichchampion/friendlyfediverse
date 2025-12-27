@@ -9,6 +9,8 @@ import {
   InteractionManager,
   Dimensions,
   type LayoutChangeEvent,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
@@ -214,6 +216,15 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       }
     });
   }, [displayPosts, isGridView]);
+
+  // Reset state when feed becomes empty
+  useEffect(() => {
+    if (feedItems.length === 0) {
+      currentPostIdRef.current = null;
+      postLayoutsRef.current.clear();
+      itemLayoutsRef.current.clear();
+    }
+  }, [feedItems.length]);
 
   // Scroll to target post when switching to list view
   useEffect(() => {
@@ -549,7 +560,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Handle scroll event for end detection and visibility tracking
   const handleScroll = useCallback(
-    (event: any) => {
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
       const scrollY = contentOffset.y;
       const viewportHeight = layoutMeasurement.height;
