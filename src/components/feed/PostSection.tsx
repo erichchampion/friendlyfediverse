@@ -301,7 +301,13 @@ export const PostSectionContent = memo<PostSectionData>(
 
 const styles = StyleSheet.create({
   headerContainer: {
-    // Header will stick to top
+    // Header will stick to top with FlashList stickyHeaderIndices
+    zIndex: 10, // Above content but below modals
+    elevation: 2, // Android shadow when sticky
+    shadowColor: "#000", // iOS shadow when sticky
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   contentContainer: {
     borderBottomWidth: 1,

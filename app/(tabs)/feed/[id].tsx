@@ -10,7 +10,7 @@ import {
   Dimensions,
   type LayoutChangeEvent,
 } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
@@ -29,6 +29,11 @@ import { transformStatus } from "@lib/api/timeline";
 import { applyFavouriteStateToPost } from "@lib/feed/favourites";
 import type { Post } from "@types";
 import { computeVisibleIds } from "@lib/utils/visibility";
+import {
+  transformPostsToFeedItems,
+  calculateStickyIndices,
+  type FeedItem,
+} from "@lib/feed/feedItemTransforms";
 
 /**
  * Main feed screen with pagination and pull-to-refresh
@@ -85,7 +90,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Track current visible post ID for scroll position restoration
   const currentPostIdRef = useRef<string | null>(null);
-  const flashListRef = useRef<FlashList<Post>>(null);
+  const flashListRef = useRef<FlashListRef<FeedItem>>(null);
 
   // Simple debounce for pagination
   const lastEndReachedRef = useRef<number>(0);
@@ -97,6 +102,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const visibleSectionsRef = useRef<Set<string>>(new Set());
   const lastVisibilityUpdateRef = useRef<number>(0);
   const postLayoutsRef = useRef<
+    Map<string, { y: number; height: number }>
+  >(new Map());
+  const itemLayoutsRef = useRef<
     Map<string, { y: number; height: number }>
   >(new Map());
   const averagePostHeightRef = useRef<number>(
@@ -163,6 +171,18 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const displayPosts = visiblePosts;
   const pendingNewCount = pendingNewPosts.length;
 
+  // Transform posts into header/content items for sticky headers
+  const feedItems = useMemo(
+    () => transformPostsToFeedItems(displayPosts),
+    [displayPosts]
+  );
+
+  // Calculate sticky header indices (all even indices: 0, 2, 4, ...)
+  const stickyIndices = useMemo(
+    () => calculateStickyIndices(feedItems),
+    [feedItems]
+  );
+
   // Initialize visible sections when posts load
   useEffect(() => {
     if (displayPosts.length > 0 && visibleSections.size === 0) {
@@ -194,18 +214,21 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Scroll to target post when switching to list view
   useEffect(() => {
-    if (!isGridView && currentPostIdRef.current && flashListRef.current && displayPosts.length > 0) {
+    if (!isGridView && currentPostIdRef.current && flashListRef.current && feedItems.length > 0) {
       const targetPostId = currentPostIdRef.current;
-      const targetIndex = displayPosts.findIndex(
-        (p) => p.id === targetPostId || p.reblog?.id === targetPostId
+      const targetIndex = feedItems.findIndex(
+        (item) => item.post.id === targetPostId || item.post.reblog?.id === targetPostId
       );
 
       if (targetIndex >= 0) {
+        // Scroll to header (even indices: 0, 2, 4...)
+        const headerIndex = targetIndex % 2 === 0 ? targetIndex : targetIndex - 1;
+
         // Use InteractionManager to scroll after render completes
         InteractionManager.runAfterInteractions(() => {
           setTimeout(() => {
             flashListRef.current?.scrollToIndex({
-              index: targetIndex,
+              index: headerIndex,
               animated: false,
               viewPosition: 0.5, // Center the post in viewport
             });
@@ -213,7 +236,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         });
       }
     }
-  }, [isGridView, displayPosts]);
+  }, [isGridView, feedItems]);
 
   // Preserve scroll position when posts are trimmed from the top (dropping newest while loading older)
   useEffect(() => {
@@ -235,9 +258,16 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         .map((p) => p.id);
 
       if (removedIds.length > 0) {
+        // Calculate removed height from item layouts (header + content)
+        const removedItemIds = new Set<string>();
+        removedIds.forEach((postId) => {
+          removedItemIds.add(`${postId}-header`);
+          removedItemIds.add(`${postId}-content`);
+        });
+
         let removedHeight = 0;
-        removedIds.forEach((id) => {
-          const layout = postLayoutsRef.current.get(id);
+        removedItemIds.forEach((itemId) => {
+          const layout = itemLayoutsRef.current.get(itemId);
           if (layout) {
             removedHeight += layout.height;
           }
@@ -259,9 +289,21 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Remove stale layout entries when posts change
   useEffect(() => {
     const validIds = new Set(displayPosts.map((p) => p.id));
+    const validItemIds = new Set(
+      displayPosts.flatMap((p) => [`${p.id}-header`, `${p.id}-content`])
+    );
+
+    // Clean up post layouts
     postLayoutsRef.current.forEach((_, id) => {
       if (!validIds.has(id)) {
         postLayoutsRef.current.delete(id);
+      }
+    });
+
+    // Clean up item layouts (headers and content)
+    itemLayoutsRef.current.forEach((_, id) => {
+      if (!validItemIds.has(id)) {
+        itemLayoutsRef.current.delete(id);
       }
     });
   }, [displayPosts]);
@@ -357,6 +399,42 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     [updateVisiblePosts],
   );
 
+  // Track layout per item (header/content) for sticky header positioning
+  const handleItemLayout = useCallback(
+    (itemId: string, postId: string, layout: { y: number; height: number }) => {
+      itemLayoutsRef.current.set(itemId, {
+        y: layout.y,
+        height: layout.height,
+      });
+
+      // Aggregate header + content for total post height
+      const headerLayout = itemLayoutsRef.current.get(`${postId}-header`);
+      const contentLayout = itemLayoutsRef.current.get(`${postId}-content`);
+
+      if (headerLayout && contentLayout) {
+        postLayoutsRef.current.set(postId, {
+          y: headerLayout.y,
+          height: headerLayout.height + contentLayout.height,
+        });
+
+        // Update average for estimatedItemSize
+        const heights = Array.from(postLayoutsRef.current.values()).map(
+          (l) => l.height,
+        );
+        if (heights.length > 0) {
+          averagePostHeightRef.current =
+            heights.reduce((sum, h) => sum + h, 0) / heights.length;
+        }
+      }
+
+      const { y, viewportHeight } = lastScrollMetricsRef.current;
+      if (viewportHeight > 0) {
+        updateVisiblePosts(y, viewportHeight);
+      }
+    },
+    [updateVisiblePosts],
+  );
+
   const handleShowPendingPosts = useCallback(() => {
     if (pendingNewCount === 0) return;
     applyPendingNewPosts();
@@ -403,12 +481,47 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     [handlePostDelete, handlePostLayout, handlePostUpdate, visibleSections],
   );
 
-  // FlashList render item wrapper
+  // FlashList render item wrapper - handles header and content items separately
   const renderFlashListItem = useCallback(
-    ({ item, index }: { item: Post; index: number }) => {
-      return renderPost(item, index);
+    ({ item }: { item: FeedItem }) => {
+      const { post } = item;
+
+      if (item.type === "header") {
+        return (
+          <View
+            key={item.id}
+            onLayout={(event: LayoutChangeEvent) =>
+              handleItemLayout(item.id, post.id, event.nativeEvent.layout)
+            }
+          >
+            <PostSectionHeader
+              post={post}
+              onDelete={handlePostDelete}
+              onUpdate={handlePostUpdate}
+            />
+          </View>
+        );
+      }
+
+      // type === "content"
+      const isVisible = visibleSections.has(post.id);
+      return (
+        <View
+          key={item.id}
+          onLayout={(event: LayoutChangeEvent) =>
+            handleItemLayout(item.id, post.id, event.nativeEvent.layout)
+          }
+        >
+          <PostSectionContent
+            post={post}
+            isVisible={isVisible}
+            onDelete={handlePostDelete}
+            onUpdate={handlePostUpdate}
+          />
+        </View>
+      );
     },
-    [renderPost],
+    [handlePostDelete, handleItemLayout, handlePostUpdate, visibleSections],
   );
 
   // Render footer (loading more indicator) - memoized
@@ -726,15 +839,14 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           scrollToTopSignal={gridScrollSignal}
         />
       ) : !isTransitioning ? (
-        <FlashList<Post>
+        <FlashList<FeedItem>
           key={`feed-list-${feedType}-${feedId || 'default'}`}
           ref={flashListRef}
-          data={displayPosts}
+          data={feedItems}
           renderItem={renderFlashListItem}
           keyExtractor={(item) => item.id}
-          estimatedItemSize={averagePostHeightRef.current}
-          // Workaround for CellContainer error in Release builds
-          drawDistance={1000}
+          // Sticky headers - makes post headers stick to top while scrolling
+          stickyHeaderIndices={stickyIndices}
           // Scroll behavior
           onScroll={handleScroll}
           scrollEventThrottle={16}
@@ -752,10 +864,6 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           ListEmptyComponent={renderEmpty}
           // Performance
           drawDistance={500}
-          estimatedListSize={{
-            height: Dimensions.get("window").height,
-            width: Dimensions.get("window").width,
-          }}
         />
       ) : null}
 
