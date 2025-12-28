@@ -29,7 +29,7 @@
     ],
     "web": {
       "favicon": "./assets/favicon.png",
-      "output": "server",
+      "output": "static",
       "bundler": "metro"
     },
     "plugins": [
@@ -56,7 +56,7 @@
       "expo-video"
     ],
     "experiments": {
-      "baseUrl": "/friendlyfediverse.com",
+      "baseUrl": "/",
       "typedRoutes": true
     },
     "extra": {
