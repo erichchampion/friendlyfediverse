@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
 import { useAuth } from "@contexts/AuthContext";
+import { useTimelines } from "@contexts/TimelinesContext";
 import { getActiveClient } from "@lib/api/client";
 import type { User } from "@types";
 
@@ -24,6 +25,7 @@ export default function CurrentUserProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user: authUser, instance, isLoading: authLoading } = useAuth();
+  const { addAccountFeed } = useTimelines();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -45,6 +47,9 @@ export default function CurrentUserProfileScreen() {
 
   const handleViewFeed = () => {
     if (!user) return;
+
+    // Add account feed and navigate to it
+    addAccountFeed(user.id, user.displayName);
     router.back();
     router.push(`/(tabs)/feed/account/${user.id}` as any);
   };
