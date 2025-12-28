@@ -265,7 +265,7 @@ export function MediaGrid({
               return (
                 <View
                   key={`${item.id}-${index}`}
-                  style={styles.mediaItem}
+                  style={[styles.mediaItem, styles.gridMediaItem]}
                   pointerEvents="box-none"
                 >
                   {isVideo ? (
@@ -397,6 +397,12 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "web" ? {} : { width: STYLE_CONSTANTS.FULL_WIDTH }),
     ...fullSizeConstraints,
     minWidth: STYLE_CONSTANTS.FLEX_MIN_WIDTH,
+  },
+  gridMediaItem: {
+    // In grid mode, ensure the media item fills its parent container
+    // This is critical on web to prevent the View from collapsing
+    width: STYLE_CONSTANTS.FULL_WIDTH,
+    height: STYLE_CONSTANTS.FULL_HEIGHT,
   },
   image: {
     width: STYLE_CONSTANTS.FULL_WIDTH,
