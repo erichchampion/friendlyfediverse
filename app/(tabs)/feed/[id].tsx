@@ -12,7 +12,7 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
-import { FlashList, type FlashListRef } from "@shopify/flash-list";
+import { FlashList, type FlashListRef, type ViewToken } from "@shopify/flash-list";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
@@ -330,8 +330,39 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     }
   }, [displayPosts, isGridView]);
 
-  // Update visibility tracking based on scroll position (for lazy loading)
-  // Throttled to prevent excessive updates
+  // Handle FlashList viewable items changed - this is the reliable way to track visibility
+  const handleFlashListViewableItemsChanged = useCallback(
+    (info: { viewableItems: ViewToken<FeedItem>[]; changed: ViewToken<FeedItem>[] }) => {
+      const visiblePostIds = new Set<string>();
+
+      // Extract post IDs from viewable content items (videos are in content, not headers)
+      info.viewableItems.forEach(({ item }) => {
+        if (item && item.type === 'content') {
+          visiblePostIds.add(item.post.id);
+        }
+      });
+
+      // Track first visible post for view transitions
+      if (visiblePostIds.size > 0) {
+        for (const post of displayPosts) {
+          if (visiblePostIds.has(post.id)) {
+            firstVisiblePostIdRef.current = post.id;
+            break;
+          }
+        }
+      }
+
+      // Always update ref immediately (no render triggered)
+      visibleSectionsRef.current = visiblePostIds;
+
+      // Update state to trigger re-renders for video autoplay
+      setVisibleSections(new Set(visiblePostIds));
+    },
+    [displayPosts],
+  );
+
+  // Update visibility tracking based on scroll position (grid view only)
+  // List view uses FlashList's onViewableItemsChanged instead
   const updateVisiblePosts = useCallback(
     (scrollY: number, viewportHeight: number) => {
       const now = Date.now();
@@ -357,12 +388,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // Always update ref immediately (no render triggered)
       visibleSectionsRef.current = visiblePostIds;
 
-      // Update state periodically (triggers re-render for video autoplay)
-      // Throttle to VISIBILITY_UPDATE_INTERVAL to prevent render thrashing
-      if (timeSinceLastUpdate >= UI_CONFIG.VISIBILITY_UPDATE_INTERVAL) {
-        lastVisibilityUpdateRef.current = now;
-        setVisibleSections(new Set(visiblePostIds));
-      }
+      // Update state to trigger re-renders for video autoplay in grid view
+      lastVisibilityUpdateRef.current = now;
+      setVisibleSections(new Set(visiblePostIds));
     },
     [displayPosts],
   );
@@ -370,7 +398,6 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Handle post deletion
   const handlePostDelete = useCallback(
     (postId: string) => {
-      console.log("[FeedScreen] Removing deleted post:", postId);
       removePost(postId);
     },
     [removePost],
@@ -396,7 +423,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     [updatePost],
   );
 
-  // Track layout per post for accurate visibility
+  // Track layout per post for accurate visibility (grid view only)
   const handlePostLayout = useCallback(
     (postId: string, layout: { y: number; height: number }) => {
       postLayoutsRef.current.set(postId, {
@@ -414,11 +441,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       }
 
       const { y, viewportHeight } = lastScrollMetricsRef.current;
-      if (viewportHeight > 0) {
+      // Only update visibility from layout in grid view - list view uses onViewableItemsChanged
+      if (viewportHeight > 0 && isGridView) {
         updateVisiblePosts(y, viewportHeight);
       }
     },
-    [updateVisiblePosts],
+    [updateVisiblePosts, isGridView],
   );
 
   // Track layout per item (header/content) for sticky header positioning
@@ -457,12 +485,10 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
 
-      const { y, viewportHeight } = lastScrollMetricsRef.current;
-      if (viewportHeight > 0) {
-        updateVisiblePosts(y, viewportHeight);
-      }
+      // Note: Visibility tracking for list view is handled by FlashList's onViewableItemsChanged
+      // Layout Y positions are always 0 in FlashList, making layout-based visibility unreliable
     },
-    [updateVisiblePosts],
+    [],
   );
 
   const handleShowPendingPosts = useCallback(() => {
@@ -501,6 +527,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
       // type === "content"
       const isVisible = visibleSections.has(post.id);
+
       return (
         <View
           key={item.id}
@@ -567,8 +594,8 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       const viewportHeight = layoutMeasurement.height;
       const contentHeight = contentSize.height;
 
-      // Update visibility tracking for lazy loading (throttled internally)
-      updateVisiblePosts(scrollY, viewportHeight);
+      // Note: Visibility tracking for FlashList is handled by onViewableItemsChanged, not scroll events
+      // Layout-based visibility doesn't work with FlashList due to view recycling
 
       // Check if near bottom (similar to grid view)
       const isNearBottom =
@@ -585,7 +612,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
     },
-    [isLoadingMore, hasMore, loadMore, updateVisiblePosts],
+    [isLoadingMore, hasMore, loadMore],
   );
 
   // Handle end reached - kept for compatibility but now handled in handleScroll
@@ -870,6 +897,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           // Scroll behavior
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          // Visibility tracking for video autoplay
+          onViewableItemsChanged={handleFlashListViewableItemsChanged}
+          viewabilityConfig={{
+            itemVisiblePercentThreshold: 50, // Item must be 50% visible
+            minimumViewTime: 100, // Must be visible for 100ms
+          }}
           // Refresh
           refreshControl={
             <RefreshControl
