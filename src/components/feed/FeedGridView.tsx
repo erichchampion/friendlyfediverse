@@ -413,30 +413,27 @@ export function FeedGridView({
     });
 
     if (removedPositions.length > 0 && scrollViewRef.current) {
-      // Skip scroll compensation if user is near the bottom loading more posts
-      // They want to see the new posts, not jump back up
-      const metrics = lastScrollMetricsRef.current;
-      const userIsNearBottom = isNearBottom(metrics);
+      // Always compensate for removed items, even if near bottom
+      // This prevents visual jumps when items are removed from the top
+      // regardless of where the user is scrolled
 
-      if (!userIsNearBottom) {
-        // Sum removed heights per column to approximate vertical shift
-        const removedByColumn = Array(COLUMN_COUNT).fill(0);
-        removedPositions.forEach((pos) => {
-          removedByColumn[pos.columnIndex] += pos.height + GRID_GAP;
-        });
+      // Sum removed heights per column to approximate vertical shift
+      const removedByColumn = Array(COLUMN_COUNT).fill(0);
+      removedPositions.forEach((pos) => {
+        removedByColumn[pos.columnIndex] += pos.height + GRID_GAP;
+      });
 
-        const shift = Math.max(...removedByColumn);
-        if (shift > 0) {
-          const currentY = lastScrollMetricsRef.current.scrollY;
-          const nextY = Math.max(0, currentY - shift);
-          scrollViewRef.current.scrollTo({ y: nextY, animated: false });
-          lastScrollMetricsRef.current = {
-            ...lastScrollMetricsRef.current,
-            scrollY: nextY,
-          };
-          // Mark that we compensated to prevent double compensation in onContentSizeChange
-          lastCompensationRef.current = Date.now();
-        }
+      const shift = Math.max(...removedByColumn);
+      if (shift > 0) {
+        const currentY = lastScrollMetricsRef.current.scrollY;
+        const nextY = Math.max(0, currentY - shift);
+        scrollViewRef.current.scrollTo({ y: nextY, animated: false });
+        lastScrollMetricsRef.current = {
+          ...lastScrollMetricsRef.current,
+          scrollY: nextY,
+        };
+        // Mark that we compensated to prevent double compensation in onContentSizeChange
+        lastCompensationRef.current = Date.now();
       }
     }
 
@@ -561,7 +558,7 @@ export function FeedGridView({
             viewportHeight * UI_CONFIG.GRID_SCROLL_PADDING_RATIO,
           );
         };
-        
+
         // Helper to scroll to target item with padding
         const scrollToItem = (position: { y: number; height: number }) => {
           const offset = position.y;
@@ -586,10 +583,10 @@ export function FeedGridView({
             onScrollComplete();
           }
         };
-        
+
         // Check if we have the actual measured position for this item
         const actualPosition = actualItemPositionsRef.current.get(targetItem.id);
-        
+
         if (actualPosition) {
           // Use actual measured position - this is accurate
           // Scroll immediately since we have the actual position
@@ -603,11 +600,11 @@ export function FeedGridView({
           const maxRetries = UI_CONFIG.GRID_POSITION_MEASURE_RETRIES;
           const retryDelay = UI_CONFIG.SCROLL_RECOVERY_DELAY;
           let retryCount = 0;
-          
+
           const checkAndScroll = () => {
             // Clear previous timeout ref
             retryTimeoutRef.current = null;
-            
+
             const measuredPosition = actualItemPositionsRef.current.get(targetItem.id);
             if (measuredPosition) {
               // Found it! Scroll now
@@ -617,7 +614,7 @@ export function FeedGridView({
               retryTimeoutRef.current = setTimeout(checkAndScroll, retryDelay);
             }
           };
-          
+
           // Start checking after initial delay
           retryTimeoutRef.current = setTimeout(checkAndScroll, UI_CONFIG.SCROLL_RECOVERY_DELAY);
         }
@@ -658,8 +655,8 @@ export function FeedGridView({
 
   // Shared delayed click handler; per-item callbacks are supplied at call time
   const handleDelayedItemClick = useDelayedClick({
-    onSingleClick: () => {},
-    onDoubleClick: () => {},
+    onSingleClick: () => { },
+    onDoubleClick: () => { },
   });
 
   // Create click handler for an item
@@ -681,7 +678,7 @@ export function FeedGridView({
 
   // Store refs for items to measure their absolute positions
   const itemRefsRef = useRef<Map<string, any>>(new Map());
-  
+
   // Handler to measure actual item positions using measureInWindow
   const handleItemLayout = useCallback((itemId: string, ref: any) => {
     if (!ref) return;
@@ -729,7 +726,7 @@ export function FeedGridView({
         const isVideo =
           item.media.type === "video" || item.media.type === "gifv";
         const itemClickHandler = createItemClickHandler(item);
-        
+
         // Store ref for this item
         const itemRef = (ref: any) => {
           if (ref) {
@@ -984,7 +981,7 @@ export function FeedGridView({
           now - lastProactiveLoadCheckRef.current;
         if (
           timeSinceLastProactiveCheck >=
-            UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
+          UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
           const visiblePostsChanged = !setsEqual(
