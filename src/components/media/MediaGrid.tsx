@@ -252,7 +252,7 @@ export function MediaGrid({
           style={[
             mode === "grid"
               ? styles.containerGrid
-              : [styles.grid, { gap: GRID_GAP }],
+              : styles.grid,
             mode === "grid" ? getWebGridContainerStyle(mode) : getWebListContainerStyle(mode),
           ]}
         >
@@ -310,12 +310,15 @@ export function MediaGrid({
               ...getWebListItemStyle(),
             };
             const pressHandler = createMediaClickHandler(index);
+            // Add margin for spacing between items (replaces gap)
+            const itemSpacing = index > 0 ? { marginLeft: GRID_GAP } : {};
             return (
               <TouchableOpacity
                 key={`${item.id}-${index}`}
                 style={[
                   styles.mediaItem,
                   mediaLayoutStyle,
+                  itemSpacing,
                 ]}
                 onPress={pressHandler}
                 activeOpacity={0.9}

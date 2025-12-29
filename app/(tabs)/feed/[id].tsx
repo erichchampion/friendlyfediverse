@@ -247,8 +247,13 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
               animated: false,
               viewPosition: 0, // Position header at top of viewport
             });
+            // Clear the target after scroll completes to prevent re-scrolling on feedItems changes
+            currentPostIdRef.current = null;
           }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
         });
+      } else {
+        // Post not found - clear to avoid infinite retries
+        currentPostIdRef.current = null;
       }
     }
   }, [isGridView, feedItems]);
@@ -654,6 +659,11 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     setIsGridView(!isGridView);
   }, [isGridView, displayPosts]);
 
+  // Clear scroll target after grid view scroll restoration completes
+  const handleGridScrollComplete = useCallback(() => {
+    currentPostIdRef.current = null;
+  }, []);
+
   // Handle reload
   const handleReload = useCallback(async () => {
     if (!isRefreshing && !isLoading) {
@@ -884,6 +894,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           scrollToPostId={currentPostIdRef.current}
           onViewableItemsChanged={handleGridViewableItemsChanged}
           scrollToTopSignal={gridScrollSignal}
+          onScrollComplete={handleGridScrollComplete}
         />
       ) : !isTransitioning ? (
         <FlashList<FeedItem>

@@ -42,6 +42,7 @@ interface FeedGridViewProps {
     changed: any[];
   }) => void;
   onItemOffset?: (postId: string, offsetY: number) => void; // report item top offset
+  onScrollComplete?: () => void; // Called when scroll restoration completes
 }
 
 type GridItemType = "media" | "card" | "text";
@@ -200,6 +201,7 @@ export function FeedGridView({
   scrollToTopSignal,
   onViewableItemsChanged,
   onItemOffset,
+  onScrollComplete,
 }: FeedGridViewProps) {
   const { colors } = useTheme();
   const [visibleItems, setVisibleItems] = useState<Set<string>>(new Set());
@@ -566,18 +568,23 @@ export function FeedGridView({
           const viewportHeight = lastScrollMetricsRef.current.viewportHeight || Dimensions.get("window").height;
           const paddingOffset = calculatePaddingOffset(viewportHeight);
           const adjustedOffset = Math.max(0, offset - paddingOffset);
-          
+
           // Report offset for consumers
           if (onItemOffset) {
             onItemOffset(targetItem.feedItemId, offset);
           }
-          
+
           scrollViewRef.current?.scrollTo({
             y: adjustedOffset,
             animated: false,
           });
           lastScrolledToPostIdRef.current = scrollToPostId;
           lastScrollContentHeightRef.current = lastScrollMetricsRef.current.contentHeight;
+
+          // Notify parent that scroll restoration completed
+          if (onScrollComplete) {
+            onScrollComplete();
+          }
         };
         
         // Check if we have the actual measured position for this item

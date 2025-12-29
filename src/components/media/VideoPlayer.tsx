@@ -85,7 +85,19 @@ export function VideoPlayer({
   // Update player state based on props
   useEffect(() => {
     if (shouldPlay && !isSeeking) {
-      player.play();
+      // Handle promise rejection from browser autoplay restrictions
+      try {
+        // Chain catch immediately to prevent uncaught promise rejection
+        // Use optional chaining since play() might return undefined on some platforms
+        player.play()?.catch?.((error) => {
+          // Silently ignore autoplay errors - browsers block autoplay without user interaction
+          // This is expected behavior and not a critical error
+          console.debug('Video autoplay blocked:', error?.message || error);
+        });
+      } catch (error) {
+        // Catch synchronous errors
+        console.debug('Video autoplay blocked (sync):', error instanceof Error ? error.message : String(error));
+      }
     } else {
       player.pause();
     }
@@ -130,7 +142,13 @@ export function VideoPlayer({
     if (isPlaying) {
       player.pause();
     } else {
-      player.play();
+      try {
+        player.play()?.catch?.((error) => {
+          console.debug('Video play failed:', error?.message || error);
+        });
+      } catch (error) {
+        console.debug('Video play failed (sync):', error instanceof Error ? error.message : String(error));
+      }
     }
     setShowControls(true);
   };
@@ -213,7 +231,13 @@ export function VideoPlayer({
           setIsSeeking(false);
           // Resume playing if it was playing before seek
           if (wasPlayingBeforeSeek.current) {
-            player.play();
+            try {
+              player.play()?.catch?.((error) => {
+                console.debug('Video play after seek failed:', error?.message || error);
+              });
+            } catch (error) {
+              console.debug('Video play after seek failed (sync):', error instanceof Error ? error.message : String(error));
+            }
           }
         }
       },
