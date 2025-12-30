@@ -18,6 +18,11 @@ export interface TimelineOptions {
   local?: boolean; // For public timeline
 }
 
+export interface ViewportPosition {
+  firstVisibleIndex: number;
+  lastVisibleIndex: number;
+}
+
 export interface FeedState {
   posts: Post[];
   pendingNewPosts: Post[];
@@ -28,4 +33,5 @@ export interface FeedState {
   error: string | null;
   lastFetchedAt: number | null;
   anchorPostId: string | null;
+  viewportPosition?: ViewportPosition;
 }

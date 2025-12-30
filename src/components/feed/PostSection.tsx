@@ -109,7 +109,7 @@ export const PostSectionHeader = memo<PostSectionData>(
         replyToUsername: displayPost.account.username,
         replyToContent: stripHtml(displayPost.content),
       });
-      router.push(`/(modals)/compose?${replyParams.toString()}` as any);
+      router.push(`/modals/compose?${replyParams.toString()}`);
     }, [
       router,
       displayPost.id,

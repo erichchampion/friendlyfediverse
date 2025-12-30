@@ -26,7 +26,7 @@ export const FEED_CONFIG = {
   DEFAULT_PAGE_SIZE: 20,
   MAX_PAGE_SIZE: 40,
   PREFETCH_THRESHOLD: 20, // Load more when 20 items from top/bottom (reduced from 60 to prevent loading during active scrolling)
-  MAX_TOTAL_POSTS: 200, // Cap total posts kept in memory/cache to prevent unbounded growth
+  MAX_TOTAL_POSTS: 200, // Cap total posts kept in memory/cache to prevent unbounded growth (legacy, use POST_BUFFER_SIZE instead)
 };
 
 export const VIDEO_CONFIG = {
@@ -49,8 +49,14 @@ export const UI_CONFIG = {
   SCROLL_DEBOUNCE_DELAY: 1000, // ms - debounce for pagination and end reached
   SCROLL_RECOVERY_DELAY: 100, // ms
   SCROLL_RESTORE_MAX_ATTEMPTS: 3, // number of retries when waiting for layout measurement
-  PAGINATION_THRESHOLD: 200, // px from bottom to trigger pagination
+  PAGINATION_THRESHOLD: 200, // px from bottom to trigger pagination (legacy, use PROACTIVE_LOAD_BUFFER_RATIO for viewport-based loading)
   PROACTIVE_LOAD_CHECK_INTERVAL: 1000, // ms - interval for checking visible posts changes for proactive loading
+  // Proactive loading and buffer management
+  PROACTIVE_LOAD_BUFFER_RATIO: 2.0, // Load when 2 viewport heights from bottom
+  POST_BUFFER_SIZE: 350, // Maximum posts to keep in buffer
+  TRIM_THRESHOLD: 350, // Start trimming when this many posts
+  TRIM_CHUNK_SIZE: 20, // Trim this many posts at a time
+  VIEWPORT_BUFFER_POSTS: 150, // Keep this many posts on each side of viewport
   // Grid view scroll positioning
   GRID_SCROLL_PADDING_MAX: 50, // Maximum padding offset in pixels for grid scroll positioning
   GRID_SCROLL_PADDING_RATIO: 0.05, // 5% of viewport height for grid scroll padding

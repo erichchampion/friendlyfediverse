@@ -266,10 +266,22 @@ export function FeedGridView({
   }, []);
 
   // Helper to determine if the user is near the bottom of the scrollable area
+  // Uses viewport-based proactive loading to maintain large buffer
   const isNearBottom = useCallback(
     (metrics: { scrollY: number; viewportHeight: number; contentHeight: number }) => {
       const { scrollY, viewportHeight, contentHeight } = metrics;
-      return viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
+      
+      // Proactive loading: trigger when within N viewport heights from bottom
+      // This ensures posts load well before reaching the end, maintaining a large buffer
+      const distanceFromBottom = contentHeight - (scrollY + viewportHeight);
+      const proactiveThreshold = viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
+      const isNearBottomViewport = distanceFromBottom <= proactiveThreshold;
+      
+      // Fallback to pixel-based threshold for very small viewports
+      const isNearBottomPixels =
+        viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
+      
+      return isNearBottomViewport || isNearBottomPixels;
     },
     [],
   );

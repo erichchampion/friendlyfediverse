@@ -151,6 +151,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     applyPendingNewPosts,
     handleViewableItemsChanged: feedHandleViewableItemsChanged,
     updatePost,
+    updateViewportPosition,
   } = useFeed({
     feedType,
     feedId,
@@ -159,19 +160,11 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     enableCache: true,
   });
 
-  // Limit posts in memory for performance (ScrollView renders all items)
-  // Keep only the most recent posts to prevent unbounded memory growth
-  const MAX_POSTS_IN_MEMORY = 200;
-  const visiblePosts = useMemo(() => {
-    const filteredPosts = posts.filter((post) => post && post.id);
-    if (filteredPosts.length <= MAX_POSTS_IN_MEMORY) {
-      return filteredPosts;
-    }
-    // Keep last N posts (most recent)
-    return filteredPosts.slice(-MAX_POSTS_IN_MEMORY);
+  // Use all posts - trimming is now handled by useFeed with viewport-aware smart trimming
+  // Increased buffer size allows for smoother scrolling without redistribution
+  const displayPosts = useMemo(() => {
+    return posts.filter((post) => post && post.id);
   }, [posts]);
-  
-  const displayPosts = visiblePosts;
   const pendingNewCount = pendingNewPosts.length;
 
   // Transform posts into header/content items for sticky headers
@@ -339,11 +332,15 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const handleFlashListViewableItemsChanged = useCallback(
     (info: { viewableItems: ViewToken<FeedItem>[]; changed: ViewToken<FeedItem>[] }) => {
       const visiblePostIds = new Set<string>();
+      const visibleIndices: number[] = [];
 
       // Extract post IDs from viewable content items (videos are in content, not headers)
-      info.viewableItems.forEach(({ item }) => {
+      info.viewableItems.forEach(({ item, index }) => {
         if (item && item.type === 'content') {
           visiblePostIds.add(item.post.id);
+          if (index !== null && index !== undefined) {
+            visibleIndices.push(index);
+          }
         }
       });
 
@@ -357,13 +354,40 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
 
+      // Calculate viewport position for smart trimming
+      if (visibleIndices.length > 0 && displayPosts.length > 0) {
+        // Find the post indices (not feed item indices)
+        const postIndices: number[] = [];
+        visibleIndices.forEach((feedItemIndex) => {
+          // Feed items alternate: header (even), content (odd)
+          // Content items are at odd indices, so post index is (feedItemIndex - 1) / 2
+          if (feedItemIndex % 2 === 1) {
+            const postIndex = Math.floor((feedItemIndex - 1) / 2);
+            if (postIndex >= 0 && postIndex < displayPosts.length) {
+              postIndices.push(postIndex);
+            }
+          }
+        });
+
+        if (postIndices.length > 0) {
+          const firstVisibleIndex = Math.min(...postIndices);
+          const lastVisibleIndex = Math.max(...postIndices);
+          
+          // Update viewport position for smart trimming
+          updateViewportPosition({
+            firstVisibleIndex,
+            lastVisibleIndex,
+          });
+        }
+      }
+
       // Always update ref immediately (no render triggered)
       visibleSectionsRef.current = visiblePostIds;
 
       // Update state to trigger re-renders for video autoplay
       setVisibleSections(new Set(visiblePostIds));
     },
-    [displayPosts],
+    [displayPosts, updateViewportPosition],
   );
 
   // Update visibility tracking based on scroll position (grid view only)
@@ -602,11 +626,17 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // Note: Visibility tracking for FlashList is handled by onViewableItemsChanged, not scroll events
       // Layout-based visibility doesn't work with FlashList due to view recycling
 
-      // Check if near bottom (similar to grid view)
-      const isNearBottom =
+      // Proactive loading: trigger when within N viewport heights from bottom
+      // This ensures posts load well before reaching the end, maintaining a large buffer
+      const distanceFromBottom = contentHeight - (scrollY + viewportHeight);
+      const proactiveThreshold = viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
+      const isNearBottom = distanceFromBottom <= proactiveThreshold;
+
+      // Fallback to pixel-based threshold for very small viewports
+      const isNearBottomPixels =
         viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
 
-      if (isNearBottom && !isLoadingMore && hasMore) {
+      if ((isNearBottom || isNearBottomPixels) && !isLoadingMore && hasMore) {
         const now = Date.now();
         const timeSinceLastCall = now - lastEndReachedRef.current;
 
@@ -689,12 +719,32 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
 
+      // Calculate viewport position for smart trimming
+      // In grid view, FeedGridView already provides post indices directly
+      const visibleIndices: number[] = [];
+      info.viewableItems.forEach(({ index }) => {
+        if (index !== null && index !== undefined && index >= 0 && index < displayPosts.length) {
+          visibleIndices.push(index);
+        }
+      });
+
+      if (visibleIndices.length > 0) {
+        const firstVisibleIndex = Math.min(...visibleIndices);
+        const lastVisibleIndex = Math.max(...visibleIndices);
+        
+        // Update viewport position for smart trimming
+        updateViewportPosition({
+          firstVisibleIndex,
+          lastVisibleIndex,
+        });
+      }
+
       // Call the original callback for proactive loading
       if (feedHandleViewableItemsChanged) {
         feedHandleViewableItemsChanged(info);
       }
     },
-    [feedHandleViewableItemsChanged]
+    [feedHandleViewableItemsChanged, displayPosts, updateViewportPosition]
   );
 
   // Handle media press in grid view

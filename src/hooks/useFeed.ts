@@ -1,11 +1,11 @@
 import { useReducer, useCallback, useEffect, useRef } from "react";
-import type { Post, TimelineOptions, FeedState } from "@types";
+import type { Post, TimelineOptions, FeedState, ViewportPosition } from "@types";
 import type { mastodon } from "masto";
 import { getActiveClient, withRetry, RequestPriority } from "@lib/api/client";
 import { transformStatus } from "@lib/api/timeline";
 import { storageService } from "@lib/storage";
 import { CACHE_EXPIRATION } from "@lib/storage/constants";
-import { FEED_CONFIG } from "@/config";
+import { FEED_CONFIG, UI_CONFIG } from "@/config";
 import { useAuth } from "@contexts/AuthContext";
 import {
   getDirectionalTimelinePaginator,
@@ -14,22 +14,95 @@ import {
 
 type TrimDirection = "dropFromEnd" | "dropFromStart";
 
+
+/**
+ * Smart trimming that maintains buffer around viewport
+ * Only trims posts far from viewport, in chunks
+ */
 const trimPostsToLimit = (
   posts: Post[],
   direction: TrimDirection = "dropFromEnd",
-) => {
-  const max = FEED_CONFIG.MAX_TOTAL_POSTS;
-  if (!max || posts.length <= max) return posts;
+  viewportPosition?: ViewportPosition,
+): Post[] => {
+  const bufferSize = UI_CONFIG.POST_BUFFER_SIZE;
+  const trimThreshold = UI_CONFIG.TRIM_THRESHOLD;
+  const chunkSize = UI_CONFIG.TRIM_CHUNK_SIZE;
+  const viewportBuffer = UI_CONFIG.VIEWPORT_BUFFER_POSTS;
+
+  // If below threshold, no trimming needed
+  if (posts.length <= trimThreshold) {
+    return posts;
+  }
+
+  // If viewport position is provided, use smart trimming
+  if (viewportPosition) {
+    const { firstVisibleIndex, lastVisibleIndex } = viewportPosition;
+    const visibleRange = lastVisibleIndex - firstVisibleIndex;
+    const bufferStart = Math.max(0, firstVisibleIndex - viewportBuffer);
+    const bufferEnd = Math.min(posts.length, lastVisibleIndex + viewportBuffer);
+
+    // Calculate how many posts to trim
+    const overflow = posts.length - bufferSize;
+    if (overflow <= 0) {
+      return posts;
+    }
+
+    // Determine which end to trim from based on viewport position
+    const distanceFromStart = firstVisibleIndex;
+    const distanceFromEnd = posts.length - lastVisibleIndex;
+
+    let trimmed: Post[];
+
+    if (distanceFromStart < distanceFromEnd) {
+      // Viewport is closer to start, trim from end
+      // But only trim posts beyond the buffer
+      const trimFromEnd = Math.min(
+        overflow,
+        Math.max(0, posts.length - bufferEnd),
+        chunkSize,
+      );
+      trimmed = posts.slice(0, posts.length - trimFromEnd);
+    } else {
+      // Viewport is closer to end, trim from start
+      // But only trim posts before the buffer
+      const trimFromStart = Math.min(
+        overflow,
+        Math.max(0, bufferStart),
+        chunkSize,
+      );
+      trimmed = posts.slice(trimFromStart);
+    }
+
+    // If still over threshold, trim more (but respect buffer)
+    if (trimmed.length > trimThreshold) {
+      const remainingOverflow = trimmed.length - bufferSize;
+      if (remainingOverflow > 0) {
+        const additionalTrim = Math.min(remainingOverflow, chunkSize);
+        if (distanceFromStart < distanceFromEnd) {
+          trimmed = trimmed.slice(0, trimmed.length - additionalTrim);
+        } else {
+          trimmed = trimmed.slice(additionalTrim);
+        }
+      }
+    }
+
+    return trimmed;
+  }
+
+  // Fallback to simple trimming if no viewport info
+  const max = bufferSize;
+  if (posts.length <= max) return posts;
 
   const overflow = posts.length - max;
+  const trimAmount = Math.min(overflow, chunkSize);
 
   if (direction === "dropFromStart") {
     // Drop from the newest side when we appended older posts
-    return posts.slice(overflow);
+    return posts.slice(trimAmount);
   }
 
   // Default: drop from the oldest side when we prepended newer posts
-  return posts.slice(0, max);
+  return posts.slice(0, posts.length - trimAmount);
 };
 
 /**
@@ -94,6 +167,7 @@ type FeedAction =
       anchorPostId: string;
     }
   | { type: "LOAD_FROM_ANCHOR_ERROR"; error: string }
+  | { type: "UPDATE_VIEWPORT_POSITION"; viewportPosition: ViewportPosition }
   | { type: "RESET" };
 
 // Reducer for managing feed state
@@ -107,6 +181,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         posts: trimPostsToLimit(
           action.posts,
           action.trimDirection ?? "dropFromEnd",
+          state.viewportPosition,
         ),
         pendingNewPosts: [],
         isLoading: false,
@@ -125,6 +200,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         posts: trimPostsToLimit(
           action.posts,
           action.trimDirection ?? "dropFromEnd",
+          state.viewportPosition,
         ),
         pendingNewPosts: [],
         isRefreshing: false,
@@ -143,6 +219,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         posts: trimPostsToLimit(
           action.posts,
           action.trimDirection ?? "dropFromEnd",
+          state.viewportPosition,
         ),
         pendingNewPosts: state.pendingNewPosts,
         isLoadingMore: false,
@@ -178,6 +255,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         posts: trimPostsToLimit(
           [...state.pendingNewPosts, ...state.posts],
           "dropFromEnd",
+          state.viewportPosition,
         ),
         pendingNewPosts: [],
       };
@@ -189,7 +267,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "SET_POSTS":
       return {
         ...state,
-        posts: trimPostsToLimit(action.posts),
+        posts: trimPostsToLimit(action.posts, "dropFromEnd", state.viewportPosition),
         pendingNewPosts: action.pendingNewPosts ?? state.pendingNewPosts,
       };
     case "LOAD_FROM_ANCHOR_START":
@@ -197,7 +275,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "LOAD_FROM_ANCHOR_SUCCESS":
       return {
         ...state,
-        posts: trimPostsToLimit(action.posts),
+        posts: trimPostsToLimit(action.posts, "dropFromEnd", state.viewportPosition),
         pendingNewPosts: [],
         isLoading: false,
         hasMore: action.hasMore,
@@ -207,6 +285,24 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
       };
     case "LOAD_FROM_ANCHOR_ERROR":
       return { ...state, isLoading: false, error: action.error };
+    case "UPDATE_VIEWPORT_POSITION":
+      // Update viewport position and re-trim posts if needed
+      const updatedState = {
+        ...state,
+        viewportPosition: action.viewportPosition,
+      };
+      // Re-trim with new viewport info if posts exceed threshold
+      if (state.posts.length > UI_CONFIG.TRIM_THRESHOLD) {
+        return {
+          ...updatedState,
+          posts: trimPostsToLimit(
+            state.posts,
+            "dropFromEnd",
+            action.viewportPosition,
+          ),
+        };
+      }
+      return updatedState;
     case "RESET":
       return {
         posts: [],
@@ -218,6 +314,7 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         error: null,
         lastFetchedAt: null,
         anchorPostId: null,
+        viewportPosition: undefined,
       };
     default:
       return state;
@@ -469,7 +566,7 @@ export function useFeed(options: UseFeedOptions) {
               console.log(`[useFeed] load CACHED: ${cached.length} posts`);
               dispatch({
                 type: "LOAD_SUCCESS",
-                posts: trimPostsToLimit(cached),
+                posts: trimPostsToLimit(cached, "dropFromEnd", state.viewportPosition),
                 hasMore: true,
                 anchorPostId: null,
               });
@@ -477,7 +574,7 @@ export function useFeed(options: UseFeedOptions) {
               // Fetch fresh data in background
               fetchPosts()
                 .then((posts) => {
-                  const boundedPosts = trimPostsToLimit(posts);
+                  const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
                   const freshHasMore = posts.length > 0;
                   console.log(
                     `[useFeed] load BACKGROUND: ${posts.length} posts`,
@@ -511,7 +608,7 @@ export function useFeed(options: UseFeedOptions) {
       // No cache, fetch from API
       console.log("[useFeed] load NO CACHE, fetching from API");
       const posts = await fetchPosts();
-      const boundedPosts = trimPostsToLimit(posts);
+      const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
       const hasMore = posts.length > 0;
 
       console.log(
@@ -547,7 +644,7 @@ export function useFeed(options: UseFeedOptions) {
       resetIterators();
 
       const posts = await fetchPosts();
-      const boundedPosts = trimPostsToLimit(posts);
+      const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
       const hasMore = posts.length > 0;
 
       console.log(
@@ -654,7 +751,7 @@ export function useFeed(options: UseFeedOptions) {
         (post) => post && post.id && !existingIds.has(post.id),
       );
       const updatedPosts = [...state.posts, ...uniqueNewPosts];
-      const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart");
+      const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
 
       console.log(
         `[useFeed] loadMore RESULT: prevPosts=${state.posts.length}, fetched=${newPosts.length}, unique=${uniqueNewPosts.length}, total=${updatedPosts.length}`,
@@ -790,6 +887,7 @@ export function useFeed(options: UseFeedOptions) {
       const boundedSnapshot = trimPostsToLimit(
         [...pendingSnapshot, ...state.posts],
         "dropFromEnd",
+        state.viewportPosition,
       );
       const pendingTotal = pendingSnapshot.length;
 
@@ -916,7 +1014,7 @@ export function useFeed(options: UseFeedOptions) {
 
         // Display target at top, followed by older posts
         const posts = [targetPost, ...olderPosts];
-        const boundedPosts = trimPostsToLimit(posts);
+        const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
 
         console.log(
           `[useFeed] jumpToPost COMPLETE: total=${posts.length} posts`,
@@ -1107,6 +1205,20 @@ export function useFeed(options: UseFeedOptions) {
     [state.posts, state.pendingNewPosts],
   );
 
+  /**
+   * Update viewport position for smart trimming
+   * Call this when visible posts change to enable viewport-aware trimming
+   */
+  const updateViewportPosition = useCallback(
+    (viewportPosition: ViewportPosition) => {
+      dispatch({
+        type: "UPDATE_VIEWPORT_POSITION",
+        viewportPosition,
+      });
+    },
+    [],
+  );
+
   return {
     ...state,
     pendingNewPosts: state.pendingNewPosts,
@@ -1120,6 +1232,7 @@ export function useFeed(options: UseFeedOptions) {
     reload: loadFeed,
     removePost,
     updatePost,
+    updateViewportPosition,
     shouldLoadOlder,
     shouldLoadNewer,
     handleViewableItemsChanged,
