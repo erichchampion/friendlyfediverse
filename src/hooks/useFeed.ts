@@ -346,6 +346,26 @@ export function useFeed(options: UseFeedOptions) {
   // Iterator refs for bidirectional pagination
   const olderPaginatorRef = useRef<TimelinePaginator | null>(null);
   const newerPaginatorRef = useRef<TimelinePaginator | null>(null);
+  
+  // Track the last maxId/sinceId used to create iterators to detect when we've truly reached the end
+  // If a freshly created iterator with the same maxId/sinceId returns empty, we've reached the end
+  const lastOlderMaxIdRef = useRef<string | null>(null);
+  const lastNewerSinceIdRef = useRef<string | null>(null);
+  
+  // Track the last successfully fetched post ID to use for iterator creation
+  // This ensures we continue from where we actually fetched, not where the trimmed array ends
+  const lastFetchedOlderPostIdRef = useRef<string | null>(null);
+  const lastFetchedNewerPostIdRef = useRef<string | null>(null);
+  
+  // Track the lastFetchedOlderPostIdRef value at the time we created the current iterator
+  // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (meaning no new posts
+  // were fetched), which indicates we've truly reached the end
+  const lastFetchedOlderPostIdAtIteratorCreationRef = useRef<string | null>(null);
+  
+  // Track consecutive empty results (when an iterator returns empty then done) to detect true exhaustion
+  // After multiple consecutive empty results with the same maxId, we mark as exhausted
+  const consecutiveEmptyResultsRef = useRef<number>(0);
+  const MAX_CONSECUTIVE_EMPTY_RESULTS = 3;
 
   // Track proactive loading state to prevent too frequent updates
   const lastProactiveLoadRef = useRef<{ newer: number; older: number }>({
@@ -366,6 +386,12 @@ export function useFeed(options: UseFeedOptions) {
     console.log("[useFeed] Resetting pagination iterators");
     olderPaginatorRef.current = null;
     newerPaginatorRef.current = null;
+    lastOlderMaxIdRef.current = null;
+    lastNewerSinceIdRef.current = null;
+    lastFetchedOlderPostIdRef.current = null;
+    lastFetchedNewerPostIdRef.current = null;
+    lastFetchedOlderPostIdAtIteratorCreationRef.current = null;
+    consecutiveEmptyResultsRef.current = 0;
   };
 
   /**
@@ -672,6 +698,22 @@ export function useFeed(options: UseFeedOptions) {
   /**
    * Load more - pagination (older posts)
    * Uses iterator-based approach for reliable pagination
+   * 
+   * IMPORTANT: Iterator lifecycle and recreation strategy
+   * 
+   * Masto.js iterators paginate through a specific range defined by maxId.
+   * When an iterator exhausts (returns done: true), it means that particular
+   * range is done, not that the entire feed is exhausted.
+   * 
+   * Strategy:
+   * 1. On first call, create iterator with maxId from oldest post
+   * 2. Call iterator.next() to get next page
+   * 3. When iterator exhausts, reset the iterator ref to null
+   * 4. On next loadMore() call, create NEW iterator with updated maxId
+   *    (based on the new oldest post after the previous batch was loaded)
+   * 
+   * This allows continuous pagination through the entire feed by creating
+   * new iterators with updated pagination parameters when needed.
    */
   const loadMore = useCallback(async () => {
     console.log(
@@ -702,6 +744,10 @@ export function useFeed(options: UseFeedOptions) {
       const config = feedConfigRef.current;
 
       // Initialize the older posts iterator if it doesn't exist
+      // This happens on first loadMore() call, or after the previous iterator was reset
+      // (when it exhausted). By resetting to null on exhaustion, we enable iterator
+      // recreation with updated maxId based on the last successfully fetched post.
+      const wasIteratorCreated = !olderPaginatorRef.current;
       if (!olderPaginatorRef.current) {
         const activeClient = await getActiveClient();
         if (!activeClient) {
@@ -709,13 +755,43 @@ export function useFeed(options: UseFeedOptions) {
         }
 
         const { client } = activeClient;
-        const oldestPost = state.posts[state.posts.length - 1];
-        const maxId = oldestPost.id;
+        
+        // Use the last successfully fetched post ID if available, otherwise use the oldest post
+        // This ensures we continue from where we actually fetched, not from the trimmed array
+        const maxId = lastFetchedOlderPostIdRef.current ?? state.posts[state.posts.length - 1].id;
+        
+        // Track the lastFetchedOlderPostIdRef value at iterator creation time
+        // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (no new posts fetched)
+        const lastFetchedAtCreation = lastFetchedOlderPostIdRef.current;
+        
+        // Store the previous value BEFORE updating the ref (for logging and comparison)
+        const previousLastFetched = lastFetchedOlderPostIdAtIteratorCreationRef.current;
+        
+        // Check if we're retrying with the same lastFetched value BEFORE updating the ref
+        // This means no new posts were fetched since the last iterator was created
+        const isRetryingWithSameLastFetched = previousLastFetched !== null &&
+                                              previousLastFetched === lastFetchedAtCreation;
+        
+        // If we're using the same maxId again, increment the consecutive empty results counter
+        // Otherwise, reset it (we got new posts, so reset the counter)
+        if (isRetryingWithSameLastFetched) {
+          consecutiveEmptyResultsRef.current += 1;
+        } else {
+          consecutiveEmptyResultsRef.current = 0;
+        }
+        
+        // Update the ref AFTER the comparison
+        lastFetchedOlderPostIdAtIteratorCreationRef.current = lastFetchedAtCreation;
+        
+        // Update the maxId we're using for this iterator
+        lastOlderMaxIdRef.current = maxId;
 
         console.log(
-          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId}`,
+          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId} (lastFetched=${lastFetchedAtCreation ?? 'none'}, previousLastFetched=${previousLastFetched ?? 'none'}, retryingWithSame=${isRetryingWithSameLastFetched})`,
         );
 
+        // Create a new iterator with maxId from the last fetched post (or oldest if none)
+        // This iterator will paginate through posts older than this maxId
         olderPaginatorRef.current = getDirectionalTimelinePaginator(
           client,
           config.feedType,
@@ -723,18 +799,97 @@ export function useFeed(options: UseFeedOptions) {
           "older",
           { maxId, limit: config.limit },
         );
+        
+        // Store the retry flag for use when checking iterator results (across function calls)
+        // This flag persists on the paginator object, so we can check it even after multiple next() calls
+        (olderPaginatorRef.current as any)._isRetryingWithSameLastFetched = isRetryingWithSameLastFetched;
+        // Track if this is the first next() call on this iterator (only mark as exhausted on first call)
+        (olderPaginatorRef.current as any)._nextCallCount = 0;
+        // #region agent log
+        const storedFlag = (olderPaginatorRef.current as any)?._isRetryingWithSameLastFetched;
+        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:792',message:'Created new iterator with retry flag',data:{maxId,isRetryingWithSameLastFetched,storedFlag,previousLastFetched,lastFetchedAtCreation,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
       }
 
       // Get next page from iterator
+      // The iterator handles internal pagination through Link headers
       console.log("[useFeed] loadMore: Calling iterator.next()");
+      
+      // Track the call count for this iterator (to detect first call)
+      const nextCallCount = ((olderPaginatorRef.current as any)?._nextCallCount ?? 0) + 1;
+      (olderPaginatorRef.current as any)._nextCallCount = nextCallCount;
+      const isFirstCall = nextCallCount === 1;
+      
       const result = await olderPaginatorRef.current.next();
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:803',message:'After iterator.next() call',data:{isFirstCall,nextCallCount,resultDone:result.done,resultValueLength:result.value?.length,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
 
-      if (result.done || !result.value || result.value.length === 0) {
-        console.log("[useFeed] loadMore: Iterator exhausted (no more posts)");
+      // Handle iterator exhaustion
+      // IMPORTANT: When an iterator returns done: true, it means that particular iterator's
+      // range is exhausted, NOT the entire feed. We should reset the iterator and keep
+      // hasMore=true to allow creating a new iterator on the next call.
+      // However, if this iterator was created with retryingWithSame=true (meaning we're
+      // retrying with the same maxId), then we've truly reached the end.
+      if (result.done) {
+        // Check if we're retrying with the same lastFetched value
+        // If so, this iterator was created with the same maxId as the previous one,
+        // which means no new posts were fetched. Mark as exhausted.
+        const paginatorFlag = (olderPaginatorRef.current as any)?._isRetryingWithSameLastFetched;
+        const isRetryingWithSameLastFetched = paginatorFlag === true;
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:817',message:'Iterator done - checking exhaustion',data:{wasIteratorCreated,isFirstCall,paginatorFlag,isRetryingWithSameLastFetched,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        
+        console.log(`[useFeed] loadMore: Iterator done (range exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}, resetting to allow new iterator`);
+        // Check if we've had too many consecutive empty results (iterator returns empty then done)
+        // with the same maxId - this indicates true exhaustion
+        if (consecutiveEmptyResultsRef.current >= MAX_CONSECUTIVE_EMPTY_RESULTS) {
+          console.log(`[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty results (>= ${MAX_CONSECUTIVE_EMPTY_RESULTS}), truly exhausted`);
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:847',message:'Marking as exhausted - too many consecutive empty results',data:{consecutiveEmptyResults:consecutiveEmptyResultsRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run8',hypothesisId:'G'})}).catch(()=>{});
+          // #endregion
+          olderPaginatorRef.current = null;
+          consecutiveEmptyResultsRef.current = 0;
+          dispatch({
+            type: "LOAD_MORE_SUCCESS",
+            posts: state.posts,
+            hasMore: false,
+          });
+          return;
+        }
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:860',message:'Iterator done - resetting (allowing continuation)',data:{consecutiveEmptyResults:consecutiveEmptyResultsRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run8',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+        // Reset iterator ref to null to allow recreation with updated maxId on next call
+        // Keep hasMore=true - allow iterators to continue until we hit the consecutive empty threshold
+        olderPaginatorRef.current = null;
         dispatch({
           type: "LOAD_MORE_SUCCESS",
           posts: state.posts,
-          hasMore: false,
+          hasMore: true, // Keep true to allow creating new iterator
+        });
+        return;
+      }
+
+      // Check for empty array (but iterator not done yet)
+      // IMPORTANT: If an iterator returns an empty array but not done: true,
+      // we should continue calling next() on the SAME iterator. An empty array just means
+      // there are no posts in that page, but the iterator may have more pages.
+      // The iterator maintains its internal pagination state and will eventually return
+      // done: true when it's truly exhausted.
+      // We do NOT mark as exhausted based on empty arrays alone - only when done: true
+      // and retryingWithSame=true on the first call.
+      if (!result.value || result.value.length === 0) {
+        console.log("[useFeed] loadMore: Iterator returned empty array (but not done), continuing with same iterator");
+        // Continue with the same iterator - don't reset it
+        // The iterator will eventually return done: true when exhausted
+        dispatch({
+          type: "LOAD_MORE_SUCCESS",
+          posts: state.posts,
+          hasMore: true,
         });
         return;
       }
@@ -752,6 +907,16 @@ export function useFeed(options: UseFeedOptions) {
       );
       const updatedPosts = [...state.posts, ...uniqueNewPosts];
       const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
+
+        // Track the last successfully fetched post ID (the oldest post from the fetched batch)
+        // This ensures we continue from where we actually fetched, even if posts get trimmed
+        if (uniqueNewPosts.length > 0) {
+          const oldestFetchedPost = uniqueNewPosts[uniqueNewPosts.length - 1];
+          lastFetchedOlderPostIdRef.current = oldestFetchedPost.id;
+          // Reset consecutive empty results counter since we successfully fetched posts
+          consecutiveEmptyResultsRef.current = 0;
+          console.log(`[useFeed] loadMore: Tracking last fetched older post ID: ${lastFetchedOlderPostIdRef.current}`);
+        }
 
       console.log(
         `[useFeed] loadMore RESULT: prevPosts=${state.posts.length}, fetched=${newPosts.length}, unique=${uniqueNewPosts.length}, total=${updatedPosts.length}`,
@@ -801,6 +966,18 @@ export function useFeed(options: UseFeedOptions) {
   /**
    * Load newer posts (when scrolling up)
    * Uses iterator-based approach for reliable pagination
+   * 
+   * IMPORTANT: Iterator lifecycle and recreation strategy
+   * 
+   * Similar to loadMore(), but for newer posts using sinceId:
+   * 1. On first call, create iterator with sinceId from newest post
+   * 2. Call iterator.next() to get next page of newer posts
+   * 3. When iterator exhausts, reset the iterator ref to null
+   * 4. On next loadNewer() call, create NEW iterator with updated sinceId
+   *    (based on the new newest post after the previous batch was loaded)
+   * 
+   * This allows continuous pagination backward through the feed by creating
+   * new iterators with updated pagination parameters when needed.
    */
   const loadNewer = useCallback(async () => {
     console.log(
@@ -824,6 +1001,10 @@ export function useFeed(options: UseFeedOptions) {
       const config = feedConfigRef.current;
 
       // Initialize the newer posts iterator if it doesn't exist
+      // This happens on first loadNewer() call, or after the previous iterator was reset
+      // (when it exhausted). By resetting to null on exhaustion, we enable iterator
+      // recreation with updated sinceId based on the current newest post.
+      const wasIteratorCreated = !newerPaginatorRef.current;
       if (!newerPaginatorRef.current) {
         const activeClient = await getActiveClient();
         if (!activeClient) {
@@ -838,6 +1019,8 @@ export function useFeed(options: UseFeedOptions) {
           `[useFeed] loadNewer: Initializing newer posts iterator with sinceId=${sinceId}`,
         );
 
+        // Create a new iterator with sinceId from the current newest post
+        // This iterator will paginate through posts newer than this sinceId
         newerPaginatorRef.current = getDirectionalTimelinePaginator(
           client,
           config.feedType,
@@ -845,14 +1028,37 @@ export function useFeed(options: UseFeedOptions) {
           "newer",
           { sinceId, limit: config.limit },
         );
+        
+        // Track the sinceId we used to create this iterator
+        lastNewerSinceIdRef.current = sinceId;
       }
 
       // Get next page from iterator
+      // The iterator handles internal pagination through Link headers
       console.log("[useFeed] loadNewer: Calling iterator.next()");
       const result = await newerPaginatorRef.current.next();
 
-      if (result.done || !result.value || result.value.length === 0) {
-        console.log("[useFeed] loadNewer: Iterator exhausted (no newer posts)");
+      // Handle iterator exhaustion or empty results
+      // Same strategy as loadMore: distinguish between done: true vs empty array
+      if (result.done) {
+        console.log("[useFeed] loadNewer: Iterator done (truly exhausted)");
+        // Reset iterator ref to null to allow recreation with updated params on next call
+        newerPaginatorRef.current = null;
+        // Don't dispatch if no new posts - prevents unnecessary re-render
+        dispatch({ type: "LOAD_NEWER_ERROR", error: null });
+        return;
+      }
+
+      // Check for empty array (but iterator not done yet)
+      // IMPORTANT: If an iterator returns an empty array but not done: true,
+      // we should continue calling next() on the SAME iterator. The iterator
+      // maintains its internal pagination state and may have more pages.
+      // Only reset the iterator when it returns done: true, which indicates
+      // that particular pagination range is exhausted.
+      if (!result.value || result.value.length === 0) {
+        console.log("[useFeed] loadNewer: Iterator returned empty array (but not done), continuing with same iterator");
+        // Continue with the same iterator - don't reset it
+        // The iterator will eventually return done: true when exhausted
         // Don't dispatch if no new posts - prevents unnecessary re-render
         dispatch({ type: "LOAD_NEWER_ERROR", error: null });
         return;

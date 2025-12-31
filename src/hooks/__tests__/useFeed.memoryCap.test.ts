@@ -8,8 +8,19 @@ jest.mock("@/config", () => {
     ...actual,
     FEED_CONFIG: {
       ...actual.FEED_CONFIG,
-      // Smaller cap for faster tests
+      // Smaller cap for faster tests (legacy, not used in trimming)
       MAX_TOTAL_POSTS: 50,
+    },
+    UI_CONFIG: {
+      ...actual.UI_CONFIG,
+      // Override buffer size and trim threshold for tests
+      // The trimming logic uses POST_BUFFER_SIZE and TRIM_THRESHOLD, not MAX_TOTAL_POSTS
+      POST_BUFFER_SIZE: 50,
+      TRIM_THRESHOLD: 50,
+      // Make chunk size large enough to trim all overflow in one pass for tests
+      TRIM_CHUNK_SIZE: 200,
+      // Reduce viewport buffer for tests (only affects smart trimming path)
+      VIEWPORT_BUFFER_POSTS: 10,
     },
   };
 });

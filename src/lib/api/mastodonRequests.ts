@@ -79,8 +79,24 @@ function buildTimelineIterator(
  * - 'older': Fetch posts older than the current set (using maxId)
  * - 'newer': Fetch posts newer than the current set (using sinceId)
  *
+ * IMPORTANT: How masto.js iterators work for pagination:
+ * 
+ * Masto.js iterators are designed to paginate through a specific range defined by
+ * the initial pagination parameters (maxId/sinceId). When an iterator returns
+ * `done: true`, it means that particular pagination range is exhausted, NOT that
+ * the entire feed is exhausted.
+ * 
+ * To continue pagination beyond an iterator's exhaustion, you must create a NEW
+ * iterator with updated pagination parameters (new maxId/sinceId based on the
+ * latest posts you've received). This is why we removed the `hasMore` flag from
+ * this wrapper - the wrapper should not maintain permanent exhaustion state.
+ * 
+ * Instead, when an iterator exhausts, the caller (useFeed) resets the iterator
+ * reference and creates a new iterator with updated params on the next pagination
+ * call. This allows continuous pagination through the entire feed.
+ *
  * The iterator maintains its own pagination state and can be called
- * multiple times with .next() to fetch successive pages.
+ * multiple times with .next() to fetch successive pages within its range.
  *
  * @param client - Mastodon REST API client
  * @param feedType - Type of feed to fetch
@@ -104,9 +120,9 @@ export function getDirectionalTimelinePaginator(
   direction: "older" | "newer",
   params: PaginationOptions = {},
 ): TimelinePaginator {
-  // The masto.js iterator that will be created lazily
+  // The masto.js iterator that will be created lazily on first next() call
+  // This iterator is scoped to a specific pagination range defined by params
   let mastoIterator: AsyncIterator<Status[]> | null = null;
-  let hasMore = true;
 
   const createIterator = () => {
     if (!client?.v1) {
@@ -147,22 +163,26 @@ export function getDirectionalTimelinePaginator(
     [Symbol.asyncIterator](): AsyncIterator<Status[]> {
       return {
         async next(): Promise<IteratorResult<Status[]>> {
-          if (!hasMore) {
-            return { done: true, value: undefined };
-          }
-
           try {
             // Initialize the masto iterator on first call
+            // The iterator is created with the initial pagination params (maxId/sinceId)
             if (!mastoIterator) {
               mastoIterator = createIterator();
             }
 
             // Use the masto iterator to get the next page
+            // The iterator internally handles pagination through Link headers
             const result = await mastoIterator.next();
 
+            // When result.done is true, the iterator has exhausted its pagination range
+            // This does NOT mean the entire feed is exhausted - just this particular
+            // iterator's range. The caller should create a new iterator with updated
+            // params (new maxId/sinceId) to continue pagination.
+            // 
+            // NOTE: We do NOT maintain a hasMore flag here because iterator exhaustion
+            // is not permanent. The caller manages iterator lifecycle and recreation.
             if (result.done) {
               console.log(`[mastodonRequests] ${direction} iterator exhausted`);
-              hasMore = false;
               return { done: true, value: undefined };
             }
 
@@ -180,7 +200,7 @@ export function getDirectionalTimelinePaginator(
               `[mastodonRequests] Error in ${direction} iterator:`,
               error,
             );
-            hasMore = false;
+            // Don't set hasMore=false on error - let the caller handle error recovery
             throw error;
           }
         },
