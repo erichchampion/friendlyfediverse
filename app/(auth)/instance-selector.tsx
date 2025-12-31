@@ -52,6 +52,30 @@ export default function InstanceSelectorScreen() {
     }
   }, [isAuthenticated, isLoading, router]);
 
+  // Check if search query looks like a custom hostname (not in the list)
+  const isCustomHostname = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return false;
+    }
+    
+    // Remove protocol and trailing slash if present
+    const cleanQuery = searchQuery.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    
+    // Must have at least one character
+    if (cleanQuery.length === 0) {
+      return false;
+    }
+    
+    // Check if it exactly matches any instance domain in the list
+    const matchesAnyInstance = POPULAR_INSTANCES.some(
+      (i) => i.domain.toLowerCase() === cleanQuery
+    );
+    
+    // If it doesn't exactly match, treat it as a custom hostname
+    // The validation will happen when the user tries to connect
+    return !matchesAnyInstance;
+  }, [searchQuery]);
+
   // Filter instances based on search and category
   const filteredInstances = useMemo(() => {
     let instances = POPULAR_INSTANCES;
@@ -236,13 +260,13 @@ export default function InstanceSelectorScreen() {
           Choose a Server
         </Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Select from popular servers or search for a specific one
+          Select from suggested servers or enter any Mastodon-compatible server
         </Text>
       </View>
 
       <View style={styles.searchSection}>
         <Input
-          placeholder="Search servers..."
+          placeholder="Search servers or enter a hostname (e.g., loops.video)"
           value={searchQuery}
           onChangeText={setSearchQuery}
           containerStyle={styles.searchInput}
@@ -268,10 +292,57 @@ export default function InstanceSelectorScreen() {
         renderItem={renderInstance}
         keyExtractor={(item) => item.domain}
         contentContainerStyle={styles.instancesList}
+        ListHeaderComponent={
+          isCustomHostname ? (() => {
+            const cleanHostname = searchQuery.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+            const isValidating = validatingInstance === cleanHostname;
+            return (
+              <TouchableOpacity
+                disabled={isLoading || isValidating}
+                onPress={() => {
+                  handleSelectInstance(cleanHostname);
+                }}
+              >
+                <Card style={[
+                  styles.instanceCard,
+                  styles.customInstanceCard,
+                  { borderColor: colors.border }
+                ]}>
+                  <View style={styles.instanceHeader}>
+                    <View style={styles.instanceInfo}>
+                      <Text style={[styles.instanceName, { color: colors.text }]}>
+                        Connect to Custom Server
+                      </Text>
+                      <Text
+                        style={[styles.instanceDomain, { color: colors.primary }]}
+                      >
+                        {cleanHostname}
+                      </Text>
+                    </View>
+                    {isValidating && (
+                      <ActivityIndicator
+                        color={colors.primary}
+                        testID="custom-instance-loading"
+                      />
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.instanceDescription,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Connect to this server if it's not in the list above
+                  </Text>
+                </Card>
+              </TouchableOpacity>
+            );
+          })() : null
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              {searchQuery.trim()
+              {searchQuery.trim() && !isCustomHostname
                 ? "No instances found matching your search"
                 : "No instances in this category"}
             </Text>
@@ -350,6 +421,10 @@ const styles = StyleSheet.create({
   instanceCard: {
     marginBottom: 12,
     padding: 16,
+  },
+  customInstanceCard: {
+    borderWidth: 2,
+    borderStyle: "dashed",
   },
   instanceHeader: {
     flexDirection: "row",
