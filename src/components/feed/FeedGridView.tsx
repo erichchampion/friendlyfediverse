@@ -1127,10 +1127,14 @@ export function FeedGridView({
         const previousHeight = lastScrollMetricsRef.current.contentHeight;
         const heightDelta = previousHeight - height;
 
+        // Get current viewport height (fallback to window height if not yet measured)
+        const viewportHeight = lastScrollMetricsRef.current.viewportHeight || Dimensions.get('window').height;
+
         // Update metrics first so downstream consumers see the latest size
         lastScrollMetricsRef.current = {
           ...lastScrollMetricsRef.current,
           contentHeight: height,
+          viewportHeight, // Ensure viewport height is set
         };
 
         // If content height shrinks (e.g., posts trimmed from top), compensate scroll to avoid jumps

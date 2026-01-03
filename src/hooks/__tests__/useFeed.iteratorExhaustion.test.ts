@@ -136,12 +136,38 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
       }),
     };
 
-    // Fourth iterator: created with same maxId again (to reach counter = 3)
+    // Fourth iterator: created with same maxId again
     let iterator4CallCount = 0;
     const iterator4 = {
       next: jest.fn(async () => {
         iterator4CallCount++;
         if (iterator4CallCount === 1) {
+          return { done: false, value: [] };
+        } else {
+          return { done: true, value: undefined };
+        }
+      }),
+    };
+
+    // Fifth iterator: created with same maxId again
+    let iterator5CallCount = 0;
+    const iterator5 = {
+      next: jest.fn(async () => {
+        iterator5CallCount++;
+        if (iterator5CallCount === 1) {
+          return { done: false, value: [] };
+        } else {
+          return { done: true, value: undefined };
+        }
+      }),
+    };
+
+    // Sixth iterator: created with same maxId again (to reach counter = 5)
+    let iterator6CallCount = 0;
+    const iterator6 = {
+      next: jest.fn(async () => {
+        iterator6CallCount++;
+        if (iterator6CallCount === 1) {
           return { done: false, value: [] };
         } else {
           return { done: true, value: undefined };
@@ -159,8 +185,12 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
         return iterator2;
       } else if (paginatorCallCount === 3) {
         return iterator3;
-      } else {
+      } else if (paginatorCallCount === 4) {
         return iterator4;
+      } else if (paginatorCallCount === 5) {
+        return iterator5;
+      } else {
+        return iterator6;
       }
     });
 
@@ -242,32 +272,38 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
     expect(iterator3CallCount).toBe(2); // Second call returned done
     expect(paginatorCallCount).toBe(3); // Created third iterator
 
-    // After 3 consecutive empty results, should mark as exhausted
+    // After 5 consecutive empty results, should mark as exhausted
     // Counter progression:
     // - iterator1: got posts, so counter reset to 0
-    // - iterator2 created (retrying): counter = 1
-    // - iterator2 done: counter = 1
-    // - iterator3 created (retrying): counter = 2  
-    // - iterator3 done: counter = 2
-    // - iterator4 created (retrying): counter = 3
-    // - iterator4 done: counter = 3, so should mark exhausted
-    
-    // Create iterator4 (counter will be 3)
-    await act(async () => {
-      await result.current.loadMore();
-    });
-    expect(paginatorCallCount).toBe(4); // Created fourth iterator
-    
-    // Iterator4 returns empty, then done - when done, counter = 3, so should mark exhausted
-    // We need two calls: one for empty, one for done
-    await act(async () => {
-      await result.current.loadMore(); // Empty
-    });
-    await act(async () => {
-      await result.current.loadMore(); // Done - should mark exhausted here
-    });
-    
-    // After iterator4 returns done with counter = 3, should mark as exhausted
+    // - iterator2 created (retrying): counter = 1, returns empty then done
+    // - iterator3 created (retrying): counter = 2, returns empty then done
+    // - iterator4 created (retrying): counter = 3, returns empty then done
+    // - iterator5 created (retrying): counter = 4, returns empty then done
+    // - iterator6 created (retrying): counter = 5, returns empty then done -> mark exhausted
+
+    // Continue calling loadMore until exhausted (should be 2 more iterations to reach 5)
+    // Iterator 4
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await result.current.loadMore();
+      });
+    }
+
+    // Iterator 5
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await result.current.loadMore();
+      });
+    }
+
+    // Iterator 6 - this should mark as exhausted when done
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await result.current.loadMore();
+      });
+    }
+
+    // After iterator6 returns done with counter = 5, should mark as exhausted
     await waitFor(() => {
       expect(result.current.hasMore).toBe(false);
     }, { timeout: 5000 });

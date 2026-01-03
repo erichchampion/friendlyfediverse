@@ -365,7 +365,7 @@ export function useFeed(options: UseFeedOptions) {
   // Track consecutive empty results (when an iterator returns empty then done) to detect true exhaustion
   // After multiple consecutive empty results with the same maxId, we mark as exhausted
   const consecutiveEmptyResultsRef = useRef<number>(0);
-  const MAX_CONSECUTIVE_EMPTY_RESULTS = 3;
+  const MAX_CONSECUTIVE_EMPTY_RESULTS = 5; // Increased from 3 to reduce false positives
 
   // Track proactive loading state to prevent too frequent updates
   const lastProactiveLoadRef = useRef<{ newer: number; older: number }>({
@@ -805,26 +805,18 @@ export function useFeed(options: UseFeedOptions) {
         (olderPaginatorRef.current as any)._isRetryingWithSameLastFetched = isRetryingWithSameLastFetched;
         // Track if this is the first next() call on this iterator (only mark as exhausted on first call)
         (olderPaginatorRef.current as any)._nextCallCount = 0;
-        // #region agent log
-        const storedFlag = (olderPaginatorRef.current as any)?._isRetryingWithSameLastFetched;
-        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:792',message:'Created new iterator with retry flag',data:{maxId,isRetryingWithSameLastFetched,storedFlag,previousLastFetched,lastFetchedAtCreation,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       }
 
       // Get next page from iterator
       // The iterator handles internal pagination through Link headers
       console.log("[useFeed] loadMore: Calling iterator.next()");
-      
+
       // Track the call count for this iterator (to detect first call)
       const nextCallCount = ((olderPaginatorRef.current as any)?._nextCallCount ?? 0) + 1;
       (olderPaginatorRef.current as any)._nextCallCount = nextCallCount;
       const isFirstCall = nextCallCount === 1;
-      
+
       const result = await olderPaginatorRef.current.next();
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:803',message:'After iterator.next() call',data:{isFirstCall,nextCallCount,resultDone:result.done,resultValueLength:result.value?.length,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
 
       // Handle iterator exhaustion
       // IMPORTANT: When an iterator returns done: true, it means that particular iterator's
@@ -838,19 +830,12 @@ export function useFeed(options: UseFeedOptions) {
         // which means no new posts were fetched. Mark as exhausted.
         const paginatorFlag = (olderPaginatorRef.current as any)?._isRetryingWithSameLastFetched;
         const isRetryingWithSameLastFetched = paginatorFlag === true;
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:817',message:'Iterator done - checking exhaustion',data:{wasIteratorCreated,isFirstCall,paginatorFlag,isRetryingWithSameLastFetched,hasPaginator:!!olderPaginatorRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
-        
+
         console.log(`[useFeed] loadMore: Iterator done (range exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}, resetting to allow new iterator`);
         // Check if we've had too many consecutive empty results (iterator returns empty then done)
         // with the same maxId - this indicates true exhaustion
         if (consecutiveEmptyResultsRef.current >= MAX_CONSECUTIVE_EMPTY_RESULTS) {
           console.log(`[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty results (>= ${MAX_CONSECUTIVE_EMPTY_RESULTS}), truly exhausted`);
-          // #region agent log
-          fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:847',message:'Marking as exhausted - too many consecutive empty results',data:{consecutiveEmptyResults:consecutiveEmptyResultsRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run8',hypothesisId:'G'})}).catch(()=>{});
-          // #endregion
           olderPaginatorRef.current = null;
           consecutiveEmptyResultsRef.current = 0;
           dispatch({
@@ -860,9 +845,6 @@ export function useFeed(options: UseFeedOptions) {
           });
           return;
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:860',message:'Iterator done - resetting (allowing continuation)',data:{consecutiveEmptyResults:consecutiveEmptyResultsRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run8',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
         // Reset iterator ref to null to allow recreation with updated maxId on next call
         // Keep hasMore=true - allow iterators to continue until we hit the consecutive empty threshold
         olderPaginatorRef.current = null;
