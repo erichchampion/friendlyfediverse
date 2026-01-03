@@ -597,21 +597,14 @@ export function useFeed(options: UseFeedOptions) {
                 anchorPostId: null,
               });
 
-              // Fetch fresh data in background to update cache
+              // Fetch fresh data in background to validate cache freshness
+              // Note: We don't update the cache here to avoid overwriting the full
+              // cached feed with just the top 20 posts. Cache will update on next load.
               fetchPosts()
                 .then((posts) => {
-                  const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
                   console.log(
-                    `[useFeed] load BACKGROUND: ${posts.length} posts (cache update only)`,
+                    `[useFeed] load BACKGROUND: ${posts.length} posts (freshness check)`,
                   );
-                  // Update cache silently without replacing displayed posts
-                  if (config.enableCache && config.cacheKey) {
-                    storageService
-                      .saveCachedPosts(config.cacheKey, boundedPosts)
-                      .catch((err) =>
-                        console.error("[useFeed] Cache save error:", err),
-                      );
-                  }
                 })
                 .catch((error) => {
                   console.error("[useFeed] Background fetch error:", error);
