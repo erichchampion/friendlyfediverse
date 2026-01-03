@@ -122,6 +122,8 @@ export function getDirectionalTimelinePaginator(
 ): TimelinePaginator {
   // The masto.js iterator that will be created lazily on first next() call
   // This iterator is scoped to a specific pagination range defined by params
+  // IMPORTANT: This MUST be at the paginator level, not inside [Symbol.asyncIterator]
+  // so it's shared across all .next() calls and maintains pagination state
   let mastoIterator: AsyncIterator<Status[]> | null = null;
 
   const createIterator = () => {
@@ -159,59 +161,64 @@ export function getDirectionalTimelinePaginator(
     ]();
   };
 
+  // Create the actual iterator implementation once
+  // This ensures mastoIterator is properly shared and maintains state
+  const iteratorImpl = {
+    async next(): Promise<IteratorResult<Status[]>> {
+      try {
+        // Initialize the masto iterator on first call
+        // The iterator is created with the initial pagination params (maxId/sinceId)
+        if (!mastoIterator) {
+          mastoIterator = createIterator();
+        }
+
+        // Use the masto iterator to get the next page
+        // The iterator internally handles pagination through Link headers
+        const result = await mastoIterator.next();
+
+        // When result.done is true, the iterator has exhausted its pagination range
+        // This does NOT mean the entire feed is exhausted - just this particular
+        // iterator's range. The caller should create a new iterator with updated
+        // params (new maxId/sinceId) to continue pagination.
+        //
+        // NOTE: We do NOT maintain a hasMore flag here because iterator exhaustion
+        // is not permanent. The caller manages iterator lifecycle and recreation.
+        if (result.done) {
+          console.log(`[mastodonRequests] ${direction} iterator exhausted`);
+          return { done: true, value: undefined };
+        }
+
+        const posts = result.value;
+        console.log(
+          `[mastodonRequests] ${direction} iterator returned ${posts.length} posts`,
+        );
+
+        return {
+          done: false,
+          value: posts,
+        };
+      } catch (error) {
+        console.error(
+          `[mastodonRequests] Error in ${direction} iterator:`,
+          error,
+        );
+        // Don't set hasMore=false on error - let the caller handle error recovery
+        throw error;
+      }
+    },
+  };
+
   return {
     [Symbol.asyncIterator](): AsyncIterator<Status[]> {
-      return {
-        async next(): Promise<IteratorResult<Status[]>> {
-          try {
-            // Initialize the masto iterator on first call
-            // The iterator is created with the initial pagination params (maxId/sinceId)
-            if (!mastoIterator) {
-              mastoIterator = createIterator();
-            }
-
-            // Use the masto iterator to get the next page
-            // The iterator internally handles pagination through Link headers
-            const result = await mastoIterator.next();
-
-            // When result.done is true, the iterator has exhausted its pagination range
-            // This does NOT mean the entire feed is exhausted - just this particular
-            // iterator's range. The caller should create a new iterator with updated
-            // params (new maxId/sinceId) to continue pagination.
-            // 
-            // NOTE: We do NOT maintain a hasMore flag here because iterator exhaustion
-            // is not permanent. The caller manages iterator lifecycle and recreation.
-            if (result.done) {
-              console.log(`[mastodonRequests] ${direction} iterator exhausted`);
-              return { done: true, value: undefined };
-            }
-
-            const posts = result.value;
-            console.log(
-              `[mastodonRequests] ${direction} iterator returned ${posts.length} posts`,
-            );
-
-            return {
-              done: false,
-              value: posts,
-            };
-          } catch (error) {
-            console.error(
-              `[mastodonRequests] Error in ${direction} iterator:`,
-              error,
-            );
-            // Don't set hasMore=false on error - let the caller handle error recovery
-            throw error;
-          }
-        },
-      };
+      // Return the shared iterator implementation
+      // This ensures the same mastoIterator is used across all calls
+      return iteratorImpl;
     },
 
     async next(): Promise<IteratorResult<Status[]>> {
-      // Get the iterator from this object
-      const iterator = this[Symbol.asyncIterator]();
-      // Call next() on the iterator and return the result
-      return iterator.next();
+      // Directly use the shared iterator implementation
+      // This avoids creating a new closure each time
+      return iteratorImpl.next();
     },
   };
 }
