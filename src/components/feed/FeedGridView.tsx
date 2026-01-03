@@ -141,6 +141,8 @@ const distributeItemsToColumns = (
   items: GridItem[],
   columnCount: number,
   itemColumnMap: Map<string, number>,
+  preserveExistingPositions: boolean,
+  previousPositions: Map<string, { yPosition: number; height: number; columnIndex: number }>,
 ) => {
   const columns: GridItem[][] = Array.from({ length: columnCount }, () => []);
   const columnHeights = Array(columnCount).fill(0);
@@ -157,6 +159,26 @@ const distributeItemsToColumns = (
     }
   });
 
+  // If preserving positions, initialize column heights from previous positions
+  if (preserveExistingPositions && previousPositions.size > 0) {
+    // Find the minimum yPosition per column to use as starting heights
+    const minPositionPerColumn = Array(columnCount).fill(Infinity);
+    items.forEach((item) => {
+      const prevPos = previousPositions.get(item.id);
+      if (prevPos) {
+        minPositionPerColumn[prevPos.columnIndex] = Math.min(
+          minPositionPerColumn[prevPos.columnIndex],
+          prevPos.yPosition,
+        );
+      }
+    });
+
+    // Set initial column heights (accounting for the gap that will be added)
+    for (let i = 0; i < columnCount; i++) {
+      columnHeights[i] = minPositionPerColumn[i] === Infinity ? 0 : minPositionPerColumn[i] - GRID_GAP;
+    }
+  }
+
   items.forEach((item) => {
     const existingColumn = itemColumnMap.get(item.id);
 
@@ -171,18 +193,32 @@ const distributeItemsToColumns = (
     // Calculate item height
     const itemHeight = getItemHeight(item);
 
-    // Store item position (before adding the item height)
+    // If preserving positions and item has a previous position in the same column, use it
+    let yPosition: number;
+    const prevPos = previousPositions.get(item.id);
+    if (preserveExistingPositions && prevPos && prevPos.columnIndex === columnIndex) {
+      // Keep the existing position
+      yPosition = prevPos.yPosition;
+      // Update column height to account for this item
+      columnHeights[columnIndex] = Math.max(
+        columnHeights[columnIndex],
+        yPosition + itemHeight,
+      );
+    } else {
+      // Calculate new position
+      yPosition = columnHeights[columnIndex] + GRID_GAP;
+      columnHeights[columnIndex] += itemHeight + GRID_GAP;
+    }
+
+    // Store item position
     itemPositions.set(item.id, {
-      yPosition: columnHeights[columnIndex] + GRID_GAP, // Add gap for top padding
+      yPosition,
       height: itemHeight,
       columnIndex,
     });
 
     // Add item to that column
     columns[columnIndex].push(item);
-
-    // Update column height (add item height + gap for next item)
-    columnHeights[columnIndex] += itemHeight + GRID_GAP;
   });
 
   return { columns, itemPositions };
@@ -213,6 +249,10 @@ export function FeedGridView({
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Track retry timeout for cleanup
   const lastCompensationRef = useRef<number>(0); // Track when we last compensated scroll to prevent double compensation
   const [isAtEnd, setIsAtEnd] = useState(false);
+
+  // Track scroll direction for position preservation
+  const lastScrollYRef = useRef<number>(0);
+  const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
 
   // Store item positions for visibility tracking (estimated from distributeItemsToColumns)
   const itemPositionsRef = useRef<
@@ -370,12 +410,18 @@ export function FeedGridView({
       }
     });
 
+    // Determine if we should preserve existing positions
+    // Preserve when scrolling down to prevent layout shifts
+    const shouldPreservePositions = scrollDirectionRef.current === 'down';
+
     // Distribute items across columns for masonry layout and get position info
     const { columns: distributedColumns, itemPositions } =
       distributeItemsToColumns(
         items,
         COLUMN_COUNT,
         itemColumnMapRef.current,
+        shouldPreservePositions,
+        itemPositionsRef.current,
       );
 
     // Store positions in ref for visibility tracking
@@ -651,6 +697,9 @@ export function FeedGridView({
     ) {
       lastScrollSignalRef.current = scrollToTopSignal;
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      // Reset scroll direction when manually scrolling to top
+      scrollDirectionRef.current = 'none';
+      lastScrollYRef.current = 0;
     }
   }, [scrollToTopSignal]);
 
@@ -954,6 +1003,21 @@ export function FeedGridView({
       const scrollY = contentOffset.y;
       const viewportHeight = layoutMeasurement.height;
       const contentHeight = contentSize.height;
+
+      // Track scroll direction
+      const scrollDelta = scrollY - lastScrollYRef.current;
+      if (Math.abs(scrollDelta) > 5) { // Ignore tiny movements
+        const newDirection = scrollDelta > 0 ? 'down' : 'up';
+
+        // If near the top of the scroll, reset to 'none' to allow layout recalculation
+        if (scrollY < viewportHeight * 0.5) {
+          scrollDirectionRef.current = 'none';
+        } else {
+          scrollDirectionRef.current = newDirection;
+        }
+
+        lastScrollYRef.current = scrollY;
+      }
 
       // Persist latest scroll metrics for re-evaluation on content changes
       lastScrollMetricsRef.current = {
