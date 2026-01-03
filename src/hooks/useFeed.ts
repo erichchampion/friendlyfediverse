@@ -597,20 +597,14 @@ export function useFeed(options: UseFeedOptions) {
                 anchorPostId: null,
               });
 
-              // Fetch fresh data in background
+              // Fetch fresh data in background to update cache
               fetchPosts()
                 .then((posts) => {
                   const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
-                  const freshHasMore = posts.length > 0;
                   console.log(
-                    `[useFeed] load BACKGROUND: ${posts.length} posts`,
+                    `[useFeed] load BACKGROUND: ${posts.length} posts (cache update only)`,
                   );
-                  dispatch({
-                    type: "LOAD_SUCCESS",
-                    posts: boundedPosts,
-                    hasMore: freshHasMore,
-                    anchorPostId: null,
-                  });
+                  // Update cache silently without replacing displayed posts
                   if (config.enableCache && config.cacheKey) {
                     storageService
                       .saveCachedPosts(config.cacheKey, boundedPosts)
