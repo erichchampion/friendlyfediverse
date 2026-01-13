@@ -13,6 +13,19 @@ import { ThemeProvider } from "@contexts/ThemeContext";
 import { TimelinesProvider } from "@contexts/TimelinesContext";
 import { CACHE_EXPIRATION } from "@lib/storage/constants";
 
+// Conditionally import Vercel Analytics only for web
+let Analytics: React.ComponentType | null = null;
+if (Platform.OS === "web") {
+  try {
+    // Dynamic import for web only - using Next.js Analytics component
+    const AnalyticsModule = require("@vercel/analytics/next");
+    Analytics = AnalyticsModule.Analytics;
+  } catch (e) {
+    // Analytics not available, continue without it
+    console.warn("Vercel Analytics not available:", e);
+  }
+}
+
 // Create a client with optimized caching to reduce API requests
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +82,7 @@ export default function RootLayout() {
                       <StatusBar style="auto" />
                     </View>
                   </View>
+                  {Platform.OS === "web" && Analytics && <Analytics />}
                 </TimelinesProvider>
               </AuthProvider>
             </ThemeProvider>
