@@ -17,8 +17,9 @@ import { CACHE_EXPIRATION } from "@lib/storage/constants";
 let Analytics: React.ComponentType | null = null;
 if (Platform.OS === "web") {
   try {
-    // Dynamic import for web only - using Next.js Analytics component
-    const AnalyticsModule = require("@vercel/analytics/next");
+    // Dynamic import for web only - using React Analytics component (not Next.js)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AnalyticsModule = require("@vercel/analytics/react");
     Analytics = AnalyticsModule.Analytics;
   } catch (e) {
     // Analytics not available, continue without it
