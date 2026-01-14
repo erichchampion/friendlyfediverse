@@ -698,11 +698,19 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const handleReload = useCallback(async () => {
     if (!isRefreshing && !isLoading) {
       await reload();
-      // Scroll to top after reload in list view
-      if (!isGridView && displayPosts.length > 0) {
-        setTimeout(() => {
-          flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
-        }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+      // Scroll to top after reload in both list and grid views
+      if (displayPosts.length > 0) {
+        if (isGridView) {
+          // For grid view, trigger scroll to top via signal
+          setTimeout(() => {
+            setGridScrollSignal((prev) => prev + 1);
+          }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+        } else {
+          // For list view, scroll directly
+          setTimeout(() => {
+            flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+        }
       }
     }
   }, [isRefreshing, isLoading, reload, isGridView, displayPosts]);
