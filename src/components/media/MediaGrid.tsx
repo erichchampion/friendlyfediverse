@@ -63,8 +63,11 @@ export function MediaGrid({
       if (item.type === "image") {
         // Find the index in the images array
         const imageIndex = images.findIndex((img) => img.id === item.id);
-        setViewerIndex(imageIndex);
-        setViewerVisible(true);
+        // Only open viewer if image is found and has valid URL
+        if (imageIndex >= 0 && (item.previewUrl || item.url)) {
+          setViewerIndex(imageIndex);
+          setViewerVisible(true);
+        }
       }
 
       onMediaPress?.(index);
@@ -128,18 +131,18 @@ export function MediaGrid({
     return aspectRatio || null;
   };
 
-  const getMediaLayout = () => {
+  const getMediaLayout = (mediaArray: MediaAttachment[] = media) => {
     // In grid mode, no layout calculation needed - items fill container
     if (mode === "grid") {
       return [];
     }
 
     // In list mode, calculate layout based on media count
-    const count = media.length;
+    const count = mediaArray.length;
 
     if (count === 1) {
       // Single media: use full width, calculate height from aspect ratio
-      const item = media[0];
+      const item = mediaArray[0];
       const aspectRatio = getAspectRatio(item);
       const height = aspectRatio
         ? GRID_WIDTH / aspectRatio
@@ -148,7 +151,7 @@ export function MediaGrid({
     } else if (count === 2) {
       // Two media: side by side, each with its own aspect ratio
       const width = (GRID_WIDTH - GRID_GAP) / 2;
-      return media.slice(0, 2).map((item) => {
+      return mediaArray.slice(0, 2).map((item) => {
         const aspectRatio = getAspectRatio(item);
         const height = aspectRatio ? width / aspectRatio : width; // Default to square
         return { width, height, span: 1, aspectRatio };
@@ -156,13 +159,13 @@ export function MediaGrid({
     } else if (count === 3) {
       // Three media: first spans 2 rows, others on the right
       const width = (GRID_WIDTH - GRID_GAP) / 2;
-      const firstItem = media[0];
+      const firstItem = mediaArray[0];
       const firstAspectRatio = getAspectRatio(firstItem);
       const firstHeight = firstAspectRatio
         ? width / firstAspectRatio
         : width * 2; // Default to 2x height
       
-      const rightItems = media.slice(1, 3);
+      const rightItems = mediaArray.slice(1, 3);
       const rightHeights = rightItems.map((item) => {
         const aspectRatio = getAspectRatio(item);
         return aspectRatio ? width / aspectRatio : width; // Default to square
@@ -182,7 +185,7 @@ export function MediaGrid({
     } else {
       // 4 or more: 2x2 grid, each with its own aspect ratio
       const width = (GRID_WIDTH - GRID_GAP) / 2;
-      return media.slice(0, 4).map((item) => {
+      return mediaArray.slice(0, 4).map((item) => {
         const aspectRatio = getAspectRatio(item);
         const height = aspectRatio ? width / aspectRatio : width; // Default to square
         return { width, height, span: 1, aspectRatio };
@@ -190,7 +193,15 @@ export function MediaGrid({
     }
   };
 
-  const layouts = getMediaLayout();
+  // Filter out invalid media items before calculating layouts
+  // This ensures layout indices match rendered items
+  const validMedia = media.filter((item) => {
+    const isVideo = item.type === "video" || item.type === "gifv";
+    return isVideo ? !!item.url : !!(item.previewUrl || item.url);
+  });
+
+  // Calculate layouts based on valid media only (for list mode)
+  const layouts = getMediaLayout(mode === "list" ? validMedia : media);
 
   return (
     <View 
@@ -256,7 +267,7 @@ export function MediaGrid({
             mode === "grid" ? getWebGridContainerStyle(mode) : getWebListContainerStyle(mode),
           ]}
         >
-          {media.slice(0, 4).map((item, index) => {
+          {validMedia.slice(0, 4).map((item, index) => {
             const isVideo = item.type === "video" || item.type === "gifv";
 
             // In grid mode, use View instead of TouchableOpacity to allow touches to pass through
@@ -285,9 +296,9 @@ export function MediaGrid({
                         transition={200}
                       />
                       {/* More images indicator */}
-                      {index === 3 && media.length > 4 && (
+                      {index === 3 && validMedia.length > 4 && (
                         <View style={styles.moreOverlay}>
-                          <Text style={styles.moreText}>+{media.length - 4}</Text>
+                          <Text style={styles.moreText}>+{validMedia.length - 4}</Text>
                         </View>
                       )}
                     </>
@@ -297,7 +308,12 @@ export function MediaGrid({
             }
 
             // In list mode: use full width, aspectRatio style to maintain proper dimensions
+            // Note: layouts are calculated from validMedia, so indices match
             const layout = layouts[index];
+            // Safety check: if layout doesn't exist, skip rendering
+            if (!layout) {
+              return null;
+            }
             const aspectRatio = layout.aspectRatio;
             const mediaLayoutStyle = {
               width: STYLE_CONSTANTS.FULL_WIDTH,
@@ -342,9 +358,9 @@ export function MediaGrid({
                       transition={200}
                     />
                     {/* More images indicator */}
-                    {index === 3 && media.length > 4 && (
+                    {index === 3 && validMedia.length > 4 && (
                       <View style={styles.moreOverlay}>
-                        <Text style={styles.moreText}>+{media.length - 4}</Text>
+                        <Text style={styles.moreText}>+{validMedia.length - 4}</Text>
                       </View>
                     )}
                   </>
