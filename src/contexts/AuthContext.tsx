@@ -3,11 +3,18 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useCallback,
+  useRef,
   ReactNode,
 } from "react";
+import { Platform } from "react-native";
+import * as Linking from "expo-linking";
 import { storageService } from "@lib/storage";
 import {
-  login as apiLogin,
+  initiateLogin,
+  completeOAuthFromCallback,
+  isOAuthCallback,
+  getPendingOAuthState,
   logout as apiLogout,
   validateToken,
   normalizeInstanceUrl,
@@ -55,10 +62,184 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accounts: [],
   });
 
-  // Load auth state on mount
-  useEffect(() => {
-    loadAuthState();
+  // Track if we've handled the OAuth callback to prevent double processing
+  const oauthCallbackHandled = useRef(false);
+
+  /**
+   * Handle OAuth callback URL and complete the login flow
+   */
+  const handleOAuthCallback = useCallback(async (url: string) => {
+    // Prevent double handling of the same callback
+    if (oauthCallbackHandled.current) {
+      console.info("OAuth callback already handled, skipping");
+      return;
+    }
+
+    if (!isOAuthCallback(url)) {
+      return;
+    }
+
+    console.info("Handling OAuth callback:", url);
+    oauthCallbackHandled.current = true;
+
+    try {
+      setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
+
+      const authData = await completeOAuthFromCallback(url);
+      if (!authData) {
+        // No pending OAuth state, just reload auth state
+        await loadAuthState();
+        return;
+      }
+
+      // Get user info
+      const client = createMastodonClient(
+        authData.instanceUrl,
+        authData.accessToken,
+      );
+      const account = await client.v1.accounts.verifyCredentials();
+
+      // Create composite ID and save instance
+      const compositeId = `${authData.instanceUrl}@${account.id}`;
+
+      // Check if this account already exists
+      const existingAccount = await storageService.accountExists(
+        authData.instanceUrl,
+        account.id,
+      );
+
+      if (existingAccount) {
+        // Account exists - refresh token and switch to it
+        console.info(`Account @${account.username} already exists. Refreshing token.`);
+        const enhancedAuthData: AuthData = {
+          ...authData,
+          accountId: account.id,
+          username: account.username,
+        };
+        await storageService.saveAuthData(compositeId, enhancedAuthData);
+        await storageService.switchInstance(compositeId);
+      } else {
+        // New account - create instance record
+        const instance: Instance = {
+          id: compositeId,
+          url: authData.instanceUrl,
+          accountId: account.id,
+          username: account.username,
+          displayName: account.displayName || account.username,
+          domain: new URL(authData.instanceUrl).hostname,
+          createdAt: Date.now(),
+          lastAccessed: Date.now(),
+          isActive: true,
+        };
+
+        const enhancedAuthData: AuthData = {
+          ...authData,
+          accountId: account.id,
+          username: account.username,
+        };
+
+        await storageService.saveInstance(instance);
+        await storageService.saveAuthData(compositeId, enhancedAuthData);
+        await storageService.setActiveInstance(instance);
+      }
+
+      // Clear client cache for clean slate
+      clearClientCache();
+
+      // Clear all feed caches to prevent loading old posts from previous accounts
+      await storageService.clearAllCache();
+
+      // Reload full auth state
+      await loadAuthState();
+    } catch (error) {
+      console.error("OAuth callback error:", error);
+      setAuthState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : "OAuth login failed",
+      }));
+    } finally {
+      // Reset the flag after a delay to allow for retry if needed
+      setTimeout(() => {
+        oauthCallbackHandled.current = false;
+      }, 5000);
+    }
   }, []);
+
+  // Load auth state and check for OAuth callback on mount
+  useEffect(() => {
+    const initializeAuth = async () => {
+      // First check for OAuth callback in URL (web) or pending state
+      if (Platform.OS === "web") {
+        // On web, check if current URL is an OAuth callback
+        const currentUrl = window.location.href;
+        if (isOAuthCallback(currentUrl)) {
+          // Handle the callback
+          await handleOAuthCallback(currentUrl);
+          // Clean up URL by removing query params
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+          return;
+        }
+      }
+
+      // Check if there's a pending OAuth state (user may have returned to app)
+      const pendingState = await getPendingOAuthState();
+      if (pendingState) {
+        // There's pending OAuth - user might be returning from authorization
+        // On native, the deep link handler will catch the callback
+        console.info("Found pending OAuth state, waiting for callback");
+      }
+
+      // Load normal auth state
+      await loadAuthState();
+    };
+
+    initializeAuth();
+  }, [handleOAuthCallback]);
+
+  // Listen for deep link URLs (native platforms)
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return; // Web handles this differently via page load
+    }
+
+    // Get the initial URL if app was opened via deep link
+    const handleInitialURL = async () => {
+      try {
+        // Check if getInitialURL is available (may not be in test environment)
+        if (typeof Linking.getInitialURL === "function") {
+          const initialUrl = await Linking.getInitialURL();
+          if (initialUrl && isOAuthCallback(initialUrl)) {
+            await handleOAuthCallback(initialUrl);
+          }
+        }
+      } catch (error) {
+        console.warn("Error getting initial URL:", error);
+      }
+    };
+    handleInitialURL();
+
+    // Listen for deep links while app is running
+    let subscription: ReturnType<typeof Linking.addEventListener> | null = null;
+    try {
+      if (typeof Linking.addEventListener === "function") {
+        subscription = Linking.addEventListener("url", async (event) => {
+          if (isOAuthCallback(event.url)) {
+            await handleOAuthCallback(event.url);
+          }
+        });
+      }
+    } catch (error) {
+      console.warn("Error adding URL listener:", error);
+    }
+
+    return () => {
+      if (subscription && typeof subscription.remove === "function") {
+        subscription.remove();
+      }
+    };
+  }, [handleOAuthCallback]);
 
   /**
    * Load all accounts and set active one
@@ -203,140 +384,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
       }
 
-      // 3. Perform OAuth login (with force login if needed)
-      const authData = await apiLogin(instanceUrl, forceLogin);
+      // 3. Initiate OAuth login (this will redirect away from the app)
+      // The flow continues in handleOAuthCallback when the user returns
+      await initiateLogin(instanceUrl, forceLogin);
 
-      // 4. Get user info to obtain account ID (use normalized URL from authData)
-      const client = createMastodonClient(
-        authData.instanceUrl,
-        authData.accessToken,
-      );
-      const account = await client.v1.accounts.verifyCredentials();
-
-      // 5. Check if this account already exists
-      const compositeId = `${authData.instanceUrl}@${account.id}`;
-      const existingAccount = await storageService.accountExists(
-        authData.instanceUrl,
-        account.id,
-      );
-
-      if (existingAccount) {
-        // Account already exists - treat as token refresh/re-login
-        console.info(
-          `Account @${account.username} already exists. Refreshing token and switching to account.`,
-        );
-
-        // Update auth data with new token
-        const enhancedAuthData: AuthData = {
-          ...authData,
-          accountId: account.id,
-          username: account.username,
-        };
-        await storageService.saveAuthData(compositeId, enhancedAuthData);
-
-        // Update instance last accessed time and switch to it
-        await storageService.switchInstance(compositeId);
-
-        // Get updated instance data
-        const instances = await storageService.getInstances();
-        const instance = instances.find((i) => i.id === compositeId);
-
-        if (!instance) {
-          throw new Error("Failed to find account after refresh");
-        }
-
-        // Create user object
-        const user: User = {
-          id: account.id,
-          username: account.username,
-          displayName: account.displayName || account.username,
-          avatar: account.avatar,
-          header: account.header || "",
-          followersCount: account.followersCount || 0,
-          followingCount: account.followingCount || 0,
-          statusesCount: account.statusesCount || 0,
-          note: account.note,
-          url: account.url,
-          acct: account.acct,
-          locked: account.locked ?? false,
-          bot: account.bot ?? false,
-          discoverable: account.discoverable ?? false,
-          fields: account.fields,
-        };
-
-        // Reload all accounts
-        const accounts = await loadAllAccounts();
-
-        setAuthState({
-          isAuthenticated: true,
-          isLoading: false,
-          instance,
-          user,
-          error: null,
-          accounts,
-        });
-
-        console.info(
-          "Token refreshed and switched to existing account successfully",
-        );
-        return;
+      // On web, execution stops here as the page redirects
+      // On native, the browser opens but the app stays running
+      // Reset loading state so user can interact if they come back without completing OAuth
+      if (Platform.OS !== "web") {
+        setAuthState((prev) => ({ ...prev, isLoading: false }));
       }
-
-      // 6. Create NEW instance record with composite ID (use normalized URL)
-      const instance: Instance = {
-        id: compositeId, // Composite key: url@accountId
-        url: authData.instanceUrl, // Use normalized URL from authData
-        accountId: account.id, // Mastodon account ID
-        username: account.username, // Username for display
-        displayName: account.displayName || account.username,
-        domain: new URL(authData.instanceUrl).hostname,
-        createdAt: Date.now(),
-        lastAccessed: Date.now(),
-        isActive: true,
-      };
-
-      // 7. Update auth data to include account ID
-      const enhancedAuthData: AuthData = {
-        ...authData,
-        accountId: account.id,
-        username: account.username,
-      };
-
-      // 8. Save with composite ID
-      await storageService.saveInstance(instance);
-      await storageService.saveAuthData(compositeId, enhancedAuthData);
-      await storageService.setActiveInstance(instance);
-
-      // 9. Create user object
-      const user: User = {
-        id: account.id,
-        username: account.username,
-        displayName: account.displayName || account.username,
-        avatar: account.avatar,
-        header: account.header || "",
-        followersCount: account.followersCount || 0,
-        followingCount: account.followingCount || 0,
-        statusesCount: account.statusesCount || 0,
-        note: account.note,
-        url: account.url,
-        acct: account.acct,
-        locked: account.locked ?? false,
-        bot: account.bot ?? false,
-        discoverable: account.discoverable ?? false,
-        fields: account.fields,
-      };
-
-      // 10. Reload all accounts to include the new one
-      const accounts = await loadAllAccounts();
-
-      setAuthState({
-        isAuthenticated: true,
-        isLoading: false,
-        instance,
-        user,
-        error: null,
-        accounts,
-      });
     } catch (error) {
       console.error("Login error:", error);
       const errorMessage =
@@ -412,6 +469,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Clear client cache for clean slate
       clearClientCache();
+
+      // Clear all feed caches when switching accounts
+      await storageService.clearAllCache();
 
       setAuthState((prev) => ({
         ...prev,

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@contexts/AuthContext";
@@ -100,6 +101,9 @@ export default function InstanceSelectorScreen() {
   }, [searchQuery, selectedCategory]);
 
   const handleSelectInstance = async (domain: string) => {
+    console.info(`handleSelectInstance called with: ${domain}`);
+    console.info(`Current state: isLoading=${isLoading}, validatingInstance=${validatingInstance}`);
+
     try {
       setValidatingInstance(domain);
 
@@ -108,39 +112,62 @@ export default function InstanceSelectorScreen() {
 
       // Validate instance
       const isValid = await validateInstance(normalizedUrl);
+      console.info(`Validation result for ${domain}: ${isValid}`);
       if (!isValid) {
-        Alert.alert(
-          "Invalid Instance",
-          "This does not appear to be a valid Mastodon instance.",
-        );
+        if (Platform.OS === "web") {
+          window.alert("This does not appear to be a valid Mastodon-compatible instance.");
+        } else {
+          Alert.alert(
+            "Invalid Instance",
+            "This does not appear to be a valid Mastodon-compatible instance.",
+          );
+        }
         return;
       }
 
       // Get instance info
+      console.info(`Getting instance info for ${domain}...`);
       const info = await getInstanceInfo(normalizedUrl);
+      console.info(`Instance info for ${domain}:`, info ? `registrations=${info.registrations}` : 'null');
       if (info && !info.registrations) {
         // Stop the validating state while awaiting user choice
         setValidatingInstance(null);
-        Alert.alert(
-          "Registrations Closed",
-          "This instance is not currently accepting new registrations.",
-          [
-            { text: "Choose Another", style: "cancel" },
-            {
-              text: "Try Anyway",
-              onPress: () => {
-                // Ensure the spinner shows while we attempt login
-                proceedWithLogin(normalizedUrl);
+
+        // Handle alert differently on web vs native
+        if (Platform.OS === "web") {
+          const tryAnyway = window.confirm(
+            "This instance is not currently accepting new registrations.\n\nClick OK to try anyway, or Cancel to choose another server."
+          );
+          if (tryAnyway) {
+            proceedWithLogin(normalizedUrl);
+          }
+        } else {
+          Alert.alert(
+            "Registrations Closed",
+            "This instance is not currently accepting new registrations.",
+            [
+              { text: "Choose Another", style: "cancel" },
+              {
+                text: "Try Anyway",
+                onPress: () => {
+                  proceedWithLogin(normalizedUrl);
+                },
               },
-            },
-          ],
-        );
+            ],
+          );
+        }
         return;
       }
 
+      console.info(`Proceeding with login for ${domain}...`);
       await proceedWithLogin(normalizedUrl);
     } catch (error) {
-      Alert.alert("Error", "Failed to connect to instance. Please try again.");
+      console.error(`Error in handleSelectInstance for ${domain}:`, error);
+      if (Platform.OS === "web") {
+        window.alert("Failed to connect to instance. Please try again.");
+      } else {
+        Alert.alert("Error", "Failed to connect to instance. Please try again.");
+      }
     } finally {
       setValidatingInstance(null);
     }
@@ -148,15 +175,21 @@ export default function InstanceSelectorScreen() {
 
   const proceedWithLogin = async (domain: string) => {
     try {
+      console.info(`proceedWithLogin called with: ${domain}`);
       setValidatingInstance(domain);
       // Domain is already normalized at this point, but normalize again for safety
       const normalizedUrl = normalizeInstanceUrl(domain);
+      console.info(`Calling login with: ${normalizedUrl}`);
       await login(normalizedUrl);
       // Navigation will happen automatically via useEffect when isAuthenticated becomes true
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Login failed";
-      Alert.alert("Login Failed", errorMessage);
+      if (Platform.OS === "web") {
+        window.alert(`Login failed: ${errorMessage}`);
+      } else {
+        Alert.alert("Login Failed", errorMessage);
+      }
     } finally {
       setValidatingInstance(null);
     }
@@ -194,10 +227,16 @@ export default function InstanceSelectorScreen() {
 
   const renderInstance = ({ item }: { item: PopularInstance }) => {
     const isValidating = validatingInstance === item.domain;
+    const isDisabled = isLoading || isValidating;
+
+    // Debug log for button state
+    if (item.domain === "pixelfed.art") {
+      console.info(`renderInstance pixelfed.art: isLoading=${isLoading}, isValidating=${isValidating}, disabled=${isDisabled}`);
+    }
 
     return (
       <TouchableOpacity
-        disabled={isLoading || isValidating}
+        disabled={isDisabled}
         onPress={() => handleSelectInstance(item.domain)}
       >
         <Card style={styles.instanceCard}>

@@ -90,6 +90,12 @@ describe("AuthContext - Multi-Account Same-Server", () => {
     mockStorageService.switchInstance.mockResolvedValue(null);
     mockStorageService.deleteInstance.mockResolvedValue();
 
+    // Mock new OAuth redirect flow functions
+    mockAuthApi.initiateLogin.mockResolvedValue();
+    mockAuthApi.completeOAuthFromCallback.mockResolvedValue(mockAuthData1);
+    mockAuthApi.getPendingOAuthState.mockResolvedValue(null);
+    mockAuthApi.isOAuthCallback.mockReturnValue(false);
+    // Legacy login function (now throws after initiating)
     mockAuthApi.login.mockResolvedValue(mockAuthData1);
     mockAuthApi.validateToken.mockResolvedValue(true);
     mockAuthApi.normalizeInstanceUrl.mockImplementation((url: string) => {
@@ -113,40 +119,41 @@ describe("AuthContext - Multi-Account Same-Server", () => {
         },
       });
 
-      mockAuthApi.login.mockResolvedValue(mockAuthData1);
       mockStorageService.accountExists.mockResolvedValue(false);
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Login initiates OAuth redirect (mocked to do nothing)
+      await act(async () => {
+        await result.current.login("https://mastodon.social");
+      });
+
+      // Verify initiateLogin was called
+      expect(mockAuthApi.initiateLogin).toHaveBeenCalledWith(
+        "https://mastodon.social",
+        false, // forceLogin = false since no existing accounts
+      );
+
+      // Simulate OAuth callback completion by setting up storage state
+      mockStorageService.getActiveInstance.mockResolvedValue(mockInstance1);
+      mockStorageService.getAuthData.mockResolvedValue(mockAuthData1);
       mockStorageService.getAuthenticatedInstances.mockResolvedValue([
         mockInstance1,
       ]);
 
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
+      // Refresh auth to load the new state (simulates callback completion)
       await act(async () => {
-        await result.current.login("https://mastodon.social");
+        await result.current.refreshAuth();
       });
 
       await waitFor(() => {
         expect(result.current.isAuthenticated).toBe(true);
       });
-
-      // Verify composite ID was created
-      expect(mockStorageService.saveInstance).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: "https://mastodon.social@109382926501",
-          url: "https://mastodon.social",
-          accountId: "109382926501",
-          username: "alice",
-        }),
-      );
-
-      // Verify auth data includes account ID
-      expect(mockStorageService.saveAuthData).toHaveBeenCalledWith(
-        "https://mastodon.social@109382926501",
-        expect.objectContaining({
-          accountId: "109382926501",
-          username: "alice",
-        }),
-      );
     });
 
     it("should treat re-login as token refresh for existing accounts", async () => {
@@ -159,69 +166,46 @@ describe("AuthContext - Multi-Account Same-Server", () => {
         },
       });
 
-      mockAuthApi.login.mockResolvedValue(mockAuthData1);
-      mockStorageService.accountExists.mockResolvedValue(true); // Account already exists
-      mockStorageService.getInstances.mockResolvedValue([mockInstance1]);
-      mockStorageService.switchInstance.mockResolvedValue(mockInstance1);
+      // Set up existing account
+      mockStorageService.getAccountsForServer.mockResolvedValue([mockInstance1]);
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Login initiates OAuth redirect
+      await act(async () => {
+        await result.current.login("https://mastodon.social");
+      });
+
+      // Verify initiateLogin was called with forceLogin=true (existing accounts)
+      expect(mockAuthApi.initiateLogin).toHaveBeenCalledWith(
+        "https://mastodon.social",
+        true, // forceLogin = true since existing accounts
+      );
+
+      // Simulate callback completion
+      mockStorageService.getActiveInstance.mockResolvedValue(mockInstance1);
+      mockStorageService.getAuthData.mockResolvedValue(mockAuthData1);
       mockStorageService.getAuthenticatedInstances.mockResolvedValue([
         mockInstance1,
       ]);
 
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
       await act(async () => {
-        await result.current.login("https://mastodon.social");
+        await result.current.refreshAuth();
       });
 
       await waitFor(() => {
         expect(result.current.isAuthenticated).toBe(true);
       });
-
-      // Verify auth data was refreshed
-      expect(mockStorageService.saveAuthData).toHaveBeenCalledWith(
-        "https://mastodon.social@109382926501",
-        expect.objectContaining({
-          accountId: "109382926501",
-          username: "alice",
-        }),
-      );
-
-      // Verify we switched to the account
-      expect(mockStorageService.switchInstance).toHaveBeenCalledWith(
-        "https://mastodon.social@109382926501",
-      );
     });
 
     it("should allow adding different account from same server", async () => {
       const { createMastodonClient } = require("@lib/api/client");
-
-      // First account
-      createMastodonClient.mockReturnValueOnce({
-        v1: {
-          accounts: {
-            verifyCredentials: jest.fn().mockResolvedValue(mockAccount1),
-          },
-        },
-      });
-
-      mockAuthApi.login.mockResolvedValueOnce(mockAuthData1);
-      mockStorageService.accountExists.mockResolvedValueOnce(false);
-      mockStorageService.getAuthenticatedInstances.mockResolvedValueOnce([
-        mockInstance1,
-      ]);
-
-      const { result } = renderHook(() => useAuth(), { wrapper });
-
-      await act(async () => {
-        await result.current.login("https://mastodon.social");
-      });
-
-      await waitFor(() => {
-        expect(result.current.isAuthenticated).toBe(true);
-      });
-
-      // Second account on same server
-      createMastodonClient.mockReturnValueOnce({
+      createMastodonClient.mockReturnValue({
         v1: {
           accounts: {
             verifyCredentials: jest.fn().mockResolvedValue(mockAccount2),
@@ -229,6 +213,28 @@ describe("AuthContext - Multi-Account Same-Server", () => {
         },
       });
 
+      // Set up existing account on server
+      mockStorageService.getAccountsForServer.mockResolvedValue([mockInstance1]);
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Login initiates OAuth redirect for second account
+      await act(async () => {
+        await result.current.login("https://mastodon.social");
+      });
+
+      // Verify initiateLogin was called with forceLogin=true (existing accounts)
+      expect(mockAuthApi.initiateLogin).toHaveBeenCalledWith(
+        "https://mastodon.social",
+        true, // forceLogin = true since there's already an account on this server
+      );
+
+      // Set up auth data for second account
       const mockAuthData2 = {
         instanceUrl: "https://mastodon.social",
         accountId: "109382926502",
@@ -239,28 +245,29 @@ describe("AuthContext - Multi-Account Same-Server", () => {
         scopes: ["read", "write"],
       };
 
-      mockAuthApi.login.mockResolvedValueOnce(mockAuthData2);
-      mockStorageService.accountExists.mockResolvedValueOnce(false);
-      mockStorageService.getAuthenticatedInstances.mockResolvedValueOnce([
+      // Simulate second account added via callback
+      mockStorageService.getActiveInstance.mockResolvedValue(mockInstance2);
+      mockStorageService.getAuthData.mockResolvedValue(mockAuthData2);
+      mockStorageService.getAuthenticatedInstances.mockResolvedValue([
         mockInstance1,
         mockInstance2,
       ]);
+      // Ensure token validation passes for both accounts
+      mockAuthApi.validateToken.mockResolvedValue(true);
 
       await act(async () => {
-        await result.current.login("https://mastodon.social");
+        await result.current.refreshAuth();
       });
 
-      // Verify second account was saved with different composite ID
-      expect(mockStorageService.saveInstance).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: "https://mastodon.social@109382926502",
-          accountId: "109382926502",
-          username: "bob",
-        }),
-      );
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+        expect(result.current.accounts).toHaveLength(2);
+      });
     });
 
     it("should check accountExists before adding account", async () => {
+      // This test verifies that initiateLogin is called with correct forceLogin parameter
+      // The actual accountExists check now happens in handleOAuthCallback
       const { createMastodonClient } = require("@lib/api/client");
       createMastodonClient.mockReturnValue({
         v1: {
@@ -270,18 +277,29 @@ describe("AuthContext - Multi-Account Same-Server", () => {
         },
       });
 
-      mockAuthApi.login.mockResolvedValue(mockAuthData1);
+      // No existing accounts
+      mockStorageService.getAccountsForServer.mockResolvedValue([]);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
 
       await act(async () => {
         await result.current.login("https://mastodon.social");
       });
 
-      // Verify accountExists was called with correct parameters
-      expect(mockStorageService.accountExists).toHaveBeenCalledWith(
+      // Verify getAccountsForServer was called to check for existing accounts
+      expect(mockStorageService.getAccountsForServer).toHaveBeenCalledWith(
         "https://mastodon.social",
-        "109382926501",
+      );
+
+      // Verify initiateLogin was called with forceLogin=false (no existing accounts)
+      expect(mockAuthApi.initiateLogin).toHaveBeenCalledWith(
+        "https://mastodon.social",
+        false,
       );
     });
   });

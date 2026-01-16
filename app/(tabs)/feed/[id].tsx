@@ -16,6 +16,7 @@ import { FlashList, type FlashListRef, type ViewToken } from "@shopify/flash-lis
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
+import { useAuth } from "@contexts/AuthContext";
 import { useFeed } from "@hooks/useFeed";
 import { useFeedViewPreference } from "@hooks/useFeedViewPreference";
 import {
@@ -80,6 +81,7 @@ const parseFeedParams = (routeId: string) => {
 
 export function FeedScreenBase({ routeId }: { routeId: string }) {
   const { colors } = useTheme();
+  const { instance } = useAuth();
 
   const { feedType, feedId } = parseFeedParams(routeId || "public");
 
@@ -156,7 +158,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     feedType,
     feedId,
     limit: 20,
-    cacheKey: `feed_${feedType}${feedId ? `_${feedId}` : ""}`,
+    cacheKey: instance
+      ? `${instance.id}_feed_${feedType}${feedId ? `_${feedId}` : ""}`
+      : undefined,
     enableCache: true,
   });
 

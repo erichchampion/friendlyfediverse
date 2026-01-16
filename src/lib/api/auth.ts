@@ -1,7 +1,7 @@
 import { createRestAPIClient } from "masto";
 import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import { Platform } from "react-native";
 import { storageService } from "@lib/storage";
 import type { AuthData } from "@types";
 import { APP_CONFIG } from "@config/index";
@@ -9,10 +9,23 @@ import { APP_CONFIG } from "@config/index";
 /**
  * OAuth Authentication Module
  * Phase 1.2: OAuth implementation
+ * Updated to use redirect flow instead of popup for better mobile support
  */
 
-// Enable WebBrowser to handle redirects properly on iOS
-WebBrowser.maybeCompleteAuthSession();
+/**
+ * Pending OAuth state stored before redirect
+ */
+export interface PendingOAuthState {
+  instanceUrl: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  forceLogin: boolean;
+  timestamp: number;
+}
+
+// Storage key for pending OAuth state
+const PENDING_OAUTH_KEY = "pending_oauth_state";
 
 interface AppRegistration {
   clientId: string;
@@ -92,14 +105,83 @@ export async function registerApp(
 }
 
 /**
- * Start OAuth authorization flow
+ * Save pending OAuth state before redirect
+ */
+export async function savePendingOAuthState(
+  state: PendingOAuthState,
+): Promise<void> {
+  try {
+    if (Platform.OS === "web") {
+      // On web, use sessionStorage to persist across page reload
+      sessionStorage.setItem(PENDING_OAUTH_KEY, JSON.stringify(state));
+    } else {
+      // On native, use AsyncStorage via storageService
+      await storageService.setPreference("oauth", "pending_state", state);
+    }
+    console.info("Saved pending OAuth state for:", state.instanceUrl);
+  } catch (error) {
+    console.error("Error saving pending OAuth state:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get pending OAuth state after redirect
+ */
+export async function getPendingOAuthState(): Promise<PendingOAuthState | null> {
+  try {
+    let state: PendingOAuthState | null = null;
+
+    if (Platform.OS === "web") {
+      const json = sessionStorage.getItem(PENDING_OAUTH_KEY);
+      state = json ? JSON.parse(json) : null;
+    } else {
+      state = await storageService.getPreference("oauth", "pending_state");
+    }
+
+    if (state) {
+      // Check if state is expired (15 minutes)
+      const MAX_AGE = 15 * 60 * 1000;
+      if (Date.now() - state.timestamp > MAX_AGE) {
+        console.info("Pending OAuth state expired");
+        await clearPendingOAuthState();
+        return null;
+      }
+    }
+
+    return state;
+  } catch (error) {
+    console.error("Error getting pending OAuth state:", error);
+    return null;
+  }
+}
+
+/**
+ * Clear pending OAuth state
+ */
+export async function clearPendingOAuthState(): Promise<void> {
+  try {
+    if (Platform.OS === "web") {
+      sessionStorage.removeItem(PENDING_OAUTH_KEY);
+    } else {
+      await storageService.deletePreference("oauth", "pending_state");
+    }
+    console.info("Cleared pending OAuth state");
+  } catch (error) {
+    console.error("Error clearing pending OAuth state:", error);
+  }
+}
+
+/**
+ * Start OAuth authorization flow using redirect (not popup)
+ * This replaces the current window/opens external browser for better mobile support
  * @param forceLogin - If true, forces re-authentication even if already logged in
  */
 export async function startOAuthFlow(
   instanceUrl: string,
   appRegistration: AppRegistration,
   forceLogin: boolean = false,
-): Promise<WebBrowser.WebBrowserAuthSessionResult> {
+): Promise<void> {
   const normalizedUrl = normalizeInstanceUrl(instanceUrl);
 
   // Build authorization URL parameters
@@ -118,21 +200,30 @@ export async function startOAuthFlow(
 
   const authUrl = `${normalizedUrl}/oauth/authorize?${new URLSearchParams(params).toString()}`;
 
-  console.info("Starting OAuth flow", { forceLogin, url: authUrl });
+  console.info("Starting OAuth flow with redirect", { forceLogin, url: authUrl });
 
-  try {
-    // Open browser for authorization using WebBrowser API (Expo SDK 51+)
-    const result = await WebBrowser.openAuthSessionAsync(
-      authUrl,
-      appRegistration.redirectUri,
-    );
+  // Save OAuth state before redirecting so we can complete the flow when we return
+  await savePendingOAuthState({
+    instanceUrl: normalizedUrl,
+    clientId: appRegistration.clientId,
+    clientSecret: appRegistration.clientSecret,
+    redirectUri: appRegistration.redirectUri,
+    forceLogin,
+    timestamp: Date.now(),
+  });
 
-    return result;
-  } catch (error) {
-    console.error("Error in OAuth flow:", error);
-    throw new Error(
-      `OAuth flow failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+  // Redirect to authorization URL
+  if (Platform.OS === "web") {
+    // On web, replace current window location
+    window.location.href = authUrl;
+  } else {
+    // On native, use Linking to open external browser
+    const canOpen = await Linking.canOpenURL(authUrl);
+    if (!canOpen) {
+      await clearPendingOAuthState();
+      throw new Error("Cannot open authorization URL");
+    }
+    await Linking.openURL(authUrl);
   }
 }
 
@@ -213,18 +304,15 @@ export async function validateToken(
 }
 
 /**
- * Complete OAuth login process
- * This orchestrates the entire flow:
- * 1. Register app with instance
- * 2. Start OAuth flow
- * 3. Exchange code for token
- * 4. Save credentials
+ * Initiate OAuth login process (redirect-based flow)
+ * This starts the OAuth flow by redirecting the user to the authorization page.
+ * The flow is completed via completeOAuthFromCallback when the user returns.
  * @param forceLogin - If true, forces re-authentication for multi-account support
  */
-export async function login(
+export async function initiateLogin(
   instanceUrl: string,
   forceLogin: boolean = false,
-): Promise<AuthData> {
+): Promise<void> {
   const normalizedUrl = normalizeInstanceUrl(instanceUrl);
 
   try {
@@ -232,59 +320,83 @@ export async function login(
     console.info("Registering app with", normalizedUrl);
     const appRegistration = await registerApp(normalizedUrl);
 
-    // Step 2: Start OAuth flow with force login option
-    console.info("Starting OAuth flow", { forceLogin });
-    const authResult = await startOAuthFlow(
-      normalizedUrl,
-      appRegistration,
-      forceLogin,
-    );
+    // Step 2: Start OAuth flow - this will redirect away from the app
+    console.info("Starting OAuth flow with redirect", { forceLogin });
+    await startOAuthFlow(normalizedUrl, appRegistration, forceLogin);
 
-    console.info("Auth result:", JSON.stringify(authResult, null, 2));
+    // Note: Execution stops here as the user is redirected away
+    // The flow continues in completeOAuthFromCallback when they return
+  } catch (error) {
+    console.error("Login initiation error:", error);
+    throw error;
+  }
+}
 
-    if (authResult.type !== "success") {
-      throw new Error(`OAuth flow was not successful: ${authResult.type}`);
+/**
+ * Complete OAuth flow from callback URL
+ * Called when the user returns from the OAuth authorization page
+ * @param callbackUrl - The full callback URL containing the authorization code
+ * @returns AuthData if successful, null if no pending OAuth state
+ */
+export async function completeOAuthFromCallback(
+  callbackUrl: string,
+): Promise<AuthData | null> {
+  try {
+    // Get pending OAuth state
+    const pendingState = await getPendingOAuthState();
+    if (!pendingState) {
+      console.info("No pending OAuth state found");
+      return null;
     }
 
-    // Extract authorization code from URL
-    let code: string | null = null;
+    // Extract authorization code from callback URL
+    const url = new URL(callbackUrl);
+    const code = url.searchParams.get("code");
+    const error = url.searchParams.get("error");
 
-    if (authResult.type === "success" && authResult.url) {
-      const url = new URL(authResult.url);
-      code = url.searchParams.get("code");
+    if (error) {
+      await clearPendingOAuthState();
+      throw new Error(`OAuth authorization denied: ${error}`);
     }
 
     if (!code) {
-      console.error("Auth result details:", {
-        type: authResult.type,
-        url: authResult.type === "success" ? authResult.url : undefined,
-      });
-      throw new Error("No authorization code received from OAuth flow");
+      await clearPendingOAuthState();
+      throw new Error("No authorization code received from OAuth callback");
     }
 
-    // Step 3: Exchange code for token
+    console.info("Completing OAuth flow with authorization code");
+
+    // Create app registration from pending state
+    const appRegistration: AppRegistration = {
+      clientId: pendingState.clientId,
+      clientSecret: pendingState.clientSecret,
+      redirectUri: pendingState.redirectUri,
+    };
+
+    // Exchange code for token
     console.info("Exchanging code for access token");
     const accessToken = await exchangeCodeForToken(
-      normalizedUrl,
+      pendingState.instanceUrl,
       code,
       appRegistration,
     );
 
-    // Step 4: Validate token and fetch account info
+    // Validate token and fetch account info
     console.info("Validating access token");
     const client = createRestAPIClient({
-      url: normalizedUrl,
+      url: pendingState.instanceUrl,
       accessToken,
     });
 
     const account = await client.v1.accounts.verifyCredentials();
     if (!account) {
+      await clearPendingOAuthState();
       throw new Error("Token validation failed");
     }
 
-    // Step 5: Create auth data object with account info
+    // Create auth data object with account info
     const authData: AuthData = {
-      instanceUrl: normalizedUrl,
+      instanceUrl: pendingState.instanceUrl,
       accountId: account.id,
       username: account.username,
       clientId: appRegistration.clientId,
@@ -293,16 +405,49 @@ export async function login(
       scopes: ["read", "write", "follow", "push"],
     };
 
-    // Step 6: Save to storage
+    // Save to storage
     console.info("Saving auth data to storage");
-    await storageService.saveAuthData(normalizedUrl, authData);
+    await storageService.saveAuthData(pendingState.instanceUrl, authData);
 
-    console.info("Login successful");
+    // Clear pending state
+    await clearPendingOAuthState();
+
+    console.info("OAuth flow completed successfully");
     return authData;
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("OAuth completion error:", error);
+    await clearPendingOAuthState();
     throw error;
   }
+}
+
+/**
+ * Check if a URL is an OAuth callback
+ */
+export function isOAuthCallback(url: string): boolean {
+  try {
+    const redirectUri = getRedirectUri();
+    return url.startsWith(redirectUri) || url.includes("oauth-callback");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Legacy login function for backward compatibility
+ * @deprecated Use initiateLogin and completeOAuthFromCallback instead
+ */
+export async function login(
+  instanceUrl: string,
+  forceLogin: boolean = false,
+): Promise<AuthData> {
+  // This function now only initiates the login
+  // The actual completion happens via completeOAuthFromCallback
+  await initiateLogin(instanceUrl, forceLogin);
+
+  // This will never be reached as initiateLogin redirects away
+  // But we need to satisfy the return type for TypeScript
+  throw new Error("OAuth flow initiated - waiting for callback");
 }
 
 /**
