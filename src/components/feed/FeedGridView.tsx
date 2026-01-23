@@ -159,23 +159,46 @@ const distributeItemsToColumns = (
     }
   });
 
-  // If preserving positions, initialize column heights from previous positions
+  // If preserving positions, maintain column heights to prevent layout redraws
   if (preserveExistingPositions && previousPositions.size > 0) {
-    // Find the minimum yPosition per column to use as starting heights
+    // Find the minimum and maximum yPosition per column for remaining items
     const minPositionPerColumn = Array(columnCount).fill(Infinity);
+    const maxPositionPerColumn = Array(columnCount).fill(-Infinity);
+    const maxHeightPerColumn = Array(columnCount).fill(0);
+    
     items.forEach((item) => {
       const prevPos = previousPositions.get(item.id);
       if (prevPos) {
-        minPositionPerColumn[prevPos.columnIndex] = Math.min(
-          minPositionPerColumn[prevPos.columnIndex],
+        const col = prevPos.columnIndex;
+        minPositionPerColumn[col] = Math.min(
+          minPositionPerColumn[col],
           prevPos.yPosition,
+        );
+        maxPositionPerColumn[col] = Math.max(
+          maxPositionPerColumn[col],
+          prevPos.yPosition,
+        );
+        // Track the maximum height at the bottom of each column
+        maxHeightPerColumn[col] = Math.max(
+          maxHeightPerColumn[col],
+          prevPos.yPosition + prevPos.height,
         );
       }
     });
 
-    // Set initial column heights (accounting for the gap that will be added)
+    // Set initial column heights based on maximum position in each column
+    // This preserves the layout structure even when items are removed from top
     for (let i = 0; i < columnCount; i++) {
-      columnHeights[i] = minPositionPerColumn[i] === Infinity ? 0 : minPositionPerColumn[i] - GRID_GAP;
+      if (maxHeightPerColumn[i] > 0) {
+        // Column height should be the maximum bottom position of remaining items
+        // This ensures new items continue from the right place
+        columnHeights[i] = maxHeightPerColumn[i];
+      } else if (minPositionPerColumn[i] !== Infinity) {
+        // Fallback: use minimum position if no items have been measured yet
+        columnHeights[i] = minPositionPerColumn[i] - GRID_GAP;
+      } else {
+        columnHeights[i] = 0;
+      }
     }
   }
 
@@ -197,9 +220,9 @@ const distributeItemsToColumns = (
     let yPosition: number;
     const prevPos = previousPositions.get(item.id);
     if (preserveExistingPositions && prevPos && prevPos.columnIndex === columnIndex) {
-      // Keep the existing position
+      // Keep the absolute position to prevent visual jumps when items are removed from top
       yPosition = prevPos.yPosition;
-      // Update column height to account for this item
+      // Update column height to account for this item (ensures new items continue correctly)
       columnHeights[columnIndex] = Math.max(
         columnHeights[columnIndex],
         yPosition + itemHeight,
@@ -411,8 +434,14 @@ export function FeedGridView({
     });
 
     // Determine if we should preserve existing positions
-    // Preserve when scrolling down to prevent layout shifts
-    const shouldPreservePositions = scrollDirectionRef.current === 'down';
+    // Preserve when:
+    // 1. Scrolling down to prevent layout shifts
+    // 2. Items are removed from the top (to prevent column origin reset and layout redraw)
+    const currentIds = new Set(items.map((item) => item.id));
+    const previousIds = new Set(itemPositionsRef.current.keys());
+    const itemsRemoved = previousIds.size > 0 && 
+      Array.from(previousIds).some(id => !currentIds.has(id));
+    const shouldPreservePositions = scrollDirectionRef.current === 'down' || itemsRemoved;
 
     // Distribute items across columns for masonry layout and get position info
     const { columns: distributedColumns, itemPositions } =
