@@ -105,13 +105,25 @@ export function RichText({ post, content, maxLines }: RichTextProps) {
       }
     }
 
-    // Find all URLs
+    // Find all URLs (trim trailing closing delimiter when preceded by matching opener, e.g. (https://example.com) )
+    const closingPairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
     while ((match = urlPattern.exec(content)) !== null) {
+      let url = match[0];
+      let length = match[0].length;
+      const charBefore = match.index > 0 ? content[match.index - 1] : "";
+      const closing = closingPairs[charBefore];
+      if (closing && url.endsWith(closing)) {
+        url = url.slice(0, -1);
+        length -= 1;
+      } else if ((charBefore === '"' || charBefore === "'") && url.endsWith(charBefore)) {
+        url = url.slice(0, -1);
+        length -= 1;
+      }
       matches.push({
         index: match.index,
-        length: match[0].length,
+        length,
         type: "link",
-        data: { url: match[0] },
+        data: { url },
       });
     }
 
