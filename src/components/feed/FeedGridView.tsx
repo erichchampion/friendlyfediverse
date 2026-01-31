@@ -276,6 +276,14 @@ export function FeedGridView({
   // Track scroll direction for position preservation
   const lastScrollYRef = useRef<number>(0);
   const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
+  // When the user scrolls back to the top, we need to recalculate layout from y=0 so
+  // the first items appear at the top instead of leaving empty space (black screen).
+  // Bumping this signal forces the layout useMemo to re-run; at that point scrollDirectionRef
+  // is already 'none' so positions are not preserved and items start at y=0.
+  const [scrollAtTopLayoutResetSignal, setScrollAtTopLayoutResetSignal] =
+    useState(0);
+  // Only bump the signal once per "visit" to the top so we don't re-run layout every frame.
+  const scrollAtTopTriggeredRef = useRef(false);
 
   // Store item positions for visibility tracking (estimated from distributeItemsToColumns)
   const itemPositionsRef = useRef<
@@ -377,7 +385,7 @@ export function FeedGridView({
   );
 
   // Extract all items from posts (media, cards, or text) and distribute to columns
-  const { gridItems, columns } = useMemo(() => {
+  const { gridItems, columns, columnHeights, maxColumnHeight } = useMemo(() => {
     const items: GridItem[] = [];
 
     posts.forEach((post) => {
@@ -456,8 +464,27 @@ export function FeedGridView({
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
 
-    return { gridItems: items, columns: distributedColumns };
-  }, [posts]);
+    // Compute column heights for absolute-positioned layout (max bottom per column)
+    const columnHeights = Array(COLUMN_COUNT).fill(0);
+    itemPositions.forEach((pos) => {
+      const bottom = pos.yPosition + pos.height + GRID_GAP;
+      columnHeights[pos.columnIndex] = Math.max(
+        columnHeights[pos.columnIndex],
+        bottom,
+      );
+    });
+    const maxColumnHeight =
+      columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
+
+    return {
+      gridItems: items,
+      columns: distributedColumns,
+      columnHeights,
+      maxColumnHeight,
+    };
+    // scrollAtTopLayoutResetSignal: when user scrolls to top we bump it so layout
+    // recalculates from y=0 and the first items are visible instead of empty space
+  }, [posts, scrollAtTopLayoutResetSignal]);
 
   // Clean up stale actual positions when items are removed
   useEffect(() => {
@@ -477,7 +504,16 @@ export function FeedGridView({
     });
   }, [gridItems]);
 
-  // Preserve scroll offset when items are trimmed from the top (e.g., at cap)
+  // When items are trimmed from the top (e.g. feed cap), detect removals and update
+  // the previous-positions snapshot. IMPORTANT: we do NOT adjust scrollY here.
+  // Grid cells use absolute positioning with preserved yPosition, so when items
+  // are removed from the top, remaining items stay at the same vertical position.
+  // The viewport (scrollY) should therefore stay unchanged — the user continues
+  // to see the same content. Adjusting scrollY (e.g. scrollTo(currentY - shift))
+  // would move the viewport up and cause an unwanted "jump back up" so the user
+  // would have to scroll down again. That compensation was correct for the old
+  // flex layout (where content reflowed and moved up) but is wrong for absolute
+  // positioning; do not re-add scroll compensation in this effect.
   useEffect(() => {
     const prevPositions = previousItemPositionsRef.current;
     if (!prevPositions || prevPositions.size === 0) {
@@ -485,7 +521,8 @@ export function FeedGridView({
       return;
     }
 
-    // Detect removed items
+    // Detect removed items (used only to decide whether to update snapshot below;
+    // we intentionally do not use removedPositions to change scroll)
     const currentIds = new Set(gridItems.map((item) => item.id));
     const removedPositions: {
       yPosition: number;
@@ -500,31 +537,10 @@ export function FeedGridView({
     });
 
     if (removedPositions.length > 0 && scrollViewRef.current) {
-      // Always compensate for removed items, even if near bottom
-      // This prevents visual jumps when items are removed from the top
-      // regardless of where the user is scrolled
-
-      // Sum removed heights per column to approximate vertical shift
-      const removedByColumn = Array(COLUMN_COUNT).fill(0);
-      removedPositions.forEach((pos) => {
-        removedByColumn[pos.columnIndex] += pos.height + GRID_GAP;
-      });
-
-      const shift = Math.max(...removedByColumn);
-      if (shift > 0) {
-        const currentY = lastScrollMetricsRef.current.scrollY;
-        const nextY = Math.max(0, currentY - shift);
-        scrollViewRef.current.scrollTo({ y: nextY, animated: false });
-        lastScrollMetricsRef.current = {
-          ...lastScrollMetricsRef.current,
-          scrollY: nextY,
-        };
-        // Mark that we compensated to prevent double compensation in onContentSizeChange
-        lastCompensationRef.current = Date.now();
-      }
+      // Do NOT call scrollTo or modify scrollY. Leave scroll position unchanged.
     }
 
-    // Update previous positions snapshot
+    // Update previous positions snapshot for the next comparison
     previousItemPositionsRef.current = new Map(itemPositionsRef.current);
   }, [gridItems, isNearBottom]);
 
@@ -811,6 +827,29 @@ export function FeedGridView({
       const post = postIdToPostMap.get(item.displayPostId);
       const isFavorited = post?.favourited || false;
 
+      // Absolute positioning from preserved positions so cells stay fixed when top items are removed
+      const pos = itemPositionsRef.current.get(item.id);
+      const positioningStyle = pos
+        ? {
+            position: "absolute" as const,
+            top: pos.yPosition,
+            left: 0,
+            right: 0,
+          }
+        : undefined;
+      const sizeStyle = pos
+        ? {
+            width: STYLE_CONSTANTS.FULL_WIDTH,
+            height: itemHeight,
+            maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
+          }
+        : {
+            width: STYLE_CONSTANTS.FULL_WIDTH,
+            height: itemHeight,
+            marginBottom: GRID_GAP,
+            maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
+          };
+
       // Render based on item type
       if (item.type === "media") {
         const isVideo =
@@ -834,15 +873,7 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[
-              styles.gridItem,
-              {
-                width: STYLE_CONSTANTS.FULL_WIDTH,
-                height: itemHeight,
-                marginBottom: GRID_GAP,
-                maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
-              },
-            ]}
+            style={[styles.gridItem, positioningStyle, sizeStyle]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -890,15 +921,7 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[
-              styles.gridItem,
-              {
-                width: STYLE_CONSTANTS.FULL_WIDTH,
-                height: itemHeight,
-                marginBottom: GRID_GAP,
-                maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
-              },
-            ]}
+            style={[styles.gridItem, positioningStyle, sizeStyle]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -962,13 +985,9 @@ export function FeedGridView({
           style={[
             styles.gridItem,
             styles.textItem,
-            {
-              width: STYLE_CONSTANTS.FULL_WIDTH,
-              height: itemHeight,
-              marginBottom: GRID_GAP,
-              backgroundColor: colors.card,
-              maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
-            },
+            positioningStyle,
+            sizeStyle,
+            { backgroundColor: colors.card },
           ]}
           onPress={itemClickHandler}
           activeOpacity={0.8}
@@ -1046,6 +1065,23 @@ export function FeedGridView({
         }
 
         lastScrollYRef.current = scrollY;
+      }
+
+      // When the user scrolls back to the top, trigger a layout reset so items start at
+      // y=0. After posts were trimmed from the top, remaining items keep preserved
+      // yPositions (e.g. 2000+), so at scrollY=0 the user would see empty space (black).
+      // Bumping scrollAtTopLayoutResetSignal causes the layout useMemo to re-run with
+      // scrollDirectionRef === 'none', so we recalculate from 0 and the first items
+      // appear at the top. We only bump once per visit (scrollAtTopTriggeredRef) so we
+      // don't re-run layout on every scroll event while at the top.
+      const atTopThreshold = Math.min(80, viewportHeight * 0.15);
+      if (scrollY <= atTopThreshold) {
+        if (!scrollAtTopTriggeredRef.current) {
+          scrollAtTopTriggeredRef.current = true;
+          setScrollAtTopLayoutResetSignal((s) => s + 1);
+        }
+      } else {
+        scrollAtTopTriggeredRef.current = false;
       }
 
       // Persist latest scroll metrics for re-evaluation on content changes
@@ -1166,30 +1202,14 @@ export function FeedGridView({
           viewportHeight, // Ensure viewport height is set
         };
 
-        // If content height shrinks (e.g., posts trimmed from top), compensate scroll to avoid jumps
-        // Skip if we already compensated in the items effect (within last 100ms)
-        // Also skip if user is near bottom loading more posts
-        const timeSinceLastCompensation = Date.now() - lastCompensationRef.current;
-        const userIsNearBottom = isNearBottom(lastScrollMetricsRef.current);
-        if (
-          heightDelta > 0 &&
-          scrollViewRef.current &&
-          timeSinceLastCompensation > 100 &&
-          !userIsNearBottom
-        ) {
-          const currentY = lastScrollMetricsRef.current.scrollY;
-          const nextY = Math.max(0, currentY - heightDelta);
-          scrollViewRef.current.scrollTo({
-            y: nextY,
-            animated: false,
-          });
-          // Keep scroll metrics in sync with the manual adjustment
-          lastScrollMetricsRef.current = {
-            ...lastScrollMetricsRef.current,
-            scrollY: nextY,
-          };
-        }
-
+        // IMPORTANT: Do NOT compensate scroll when content height shrinks (e.g. when
+        // posts are removed from the top). With absolute positioning, remaining grid
+        // cells keep their yPosition, so the content the user is viewing does not
+        // move. Reducing scrollY (e.g. scrollTo(currentY - heightDelta)) would move
+        // the viewport up and force the user to scroll down again to see the same
+        // posts. That compensation was correct for the old flex layout where content
+        // reflowed; with absolute layout we must leave scrollY unchanged when height
+        // shrinks. Do not re-add scroll compensation for heightDelta > 0 here.
         maybeTriggerEndReached();
       }}
       refreshControl={
@@ -1199,9 +1219,18 @@ export function FeedGridView({
       }
     >
       <View style={styles.masonryContainer}>
-        {/* Render each column */}
+        {/* Render each column (fixed height + relative so absolute-positioned items stay fixed) */}
         {columns.map((columnItems, columnIndex) => (
-          <View key={`column-${columnIndex}`} style={styles.column}>
+          <View
+            key={`column-${columnIndex}`}
+            style={[
+              styles.column,
+              {
+                position: "relative" as const,
+                height: maxColumnHeight,
+              },
+            ]}
+          >
             {columnItems.map((item) => renderItem(item))}
           </View>
         ))}
