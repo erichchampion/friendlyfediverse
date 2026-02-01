@@ -40,7 +40,12 @@ export function Header({
   };
 
   return (
-    <View style={[styles.wrapper, { paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.wrapper,
+        { paddingTop: insets.top, backgroundColor: colors.card },
+      ]}
+    >
       <View
         style={[
           styles.container,
@@ -118,9 +123,7 @@ export function Header({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    backgroundColor: "#FFFFFF",
-  },
+  wrapper: {},
   container: {
     flexDirection: "row",
     alignItems: "center",
