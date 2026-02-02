@@ -322,7 +322,7 @@ export function VideoPlayer({
           <VideoView
             player={player}
             style={styles.video}
-            contentFit="cover"
+            contentFit="contain"
             nativeControls={false}
           />
           {/* GIF indicator - should be visible in grid mode */}

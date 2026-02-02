@@ -22,8 +22,8 @@ import { UI_CONFIG } from "@/config";
 
 /**
  * Feed Grid View Component
- * Displays items from posts in a masonry layout (Pinterest-style)
- * Supports media, URL cards, and text-only posts with variable heights
+ * Displays items from posts in a uniform square grid
+ * Supports media, URL cards, and text-only posts with contain-fit imagery
  */
 
 interface FeedGridViewProps {
@@ -79,168 +79,33 @@ const GRID_GAP = 2;
 const COLUMN_WIDTH =
   (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
 
-// Calculate item height based on media aspect ratio
-const getItemHeight = (item: GridItem): number => {
-  // Min height based on 16:9 aspect ratio (landscape)
-  const minHeight = COLUMN_WIDTH * (9 / 16);
-  // Max height based on 9:16 aspect ratio (portrait)
-  const maxHeight = COLUMN_WIDTH * (16 / 9);
+// Uniform square cell size for predictable layout
+const getItemHeight = (_item: GridItem): number => COLUMN_WIDTH;
 
-  if (item.type === "media") {
-    // Try to get aspect ratio from meta
-    let aspectRatio =
-      item.media.meta?.original?.aspect || item.media.meta?.small?.aspect;
-
-    // If aspect ratio isn't available, calculate it from width and height
-    if (!aspectRatio) {
-      const width =
-        item.media.meta?.original?.width || item.media.meta?.small?.width;
-      const height =
-        item.media.meta?.original?.height || item.media.meta?.small?.height;
-
-      // Only calculate if both width and height are valid numbers (not 0 or undefined)
-      if (width && height && width > 0 && height > 0) {
-        aspectRatio = width / height;
-      }
-    }
-
-    if (aspectRatio) {
-      // Height = width / aspectRatio
-      const calculatedHeight = COLUMN_WIDTH / aspectRatio;
-      // Constrain between min (16:9) and max (9:16)
-      const finalHeight = Math.max(
-        minHeight,
-        Math.min(maxHeight, calculatedHeight),
-      );
-      return finalHeight;
-    }
-    // Default to square if no aspect ratio available, but still respect constraints
-    return Math.max(minHeight, Math.min(maxHeight, COLUMN_WIDTH));
-  }
-
-  if (item.type === "card") {
-    // Cards have a fixed aspect ratio, but respect constraints
-    const cardHeight = COLUMN_WIDTH * 1.2;
-    return Math.max(minHeight, Math.min(maxHeight, cardHeight));
-  }
-
-  // Text items: estimate height based on content length
-  const charCount = item.content.length;
-  const estimatedLines = Math.ceil(charCount / 25); // ~25 chars per line
-  const lineHeight = 13;
-  const padding = 16;
-  const calculatedHeight = estimatedLines * lineHeight + padding;
-
-  // Use same aspect ratio constraints as media items
-  return Math.max(minHeight, Math.min(maxHeight, calculatedHeight));
-};
-
-// Distribute items across columns for masonry layout with stable column assignments
+// Distribute items across columns using deterministic round-robin for square grid
 // Returns columns and a map of item positions for visibility tracking
 const distributeItemsToColumns = (
   items: GridItem[],
   columnCount: number,
-  itemColumnMap: Map<string, number>,
-  preserveExistingPositions: boolean,
-  previousPositions: Map<string, { yPosition: number; height: number; columnIndex: number }>,
-) => {
+): { columns: GridItem[][]; itemPositions: Map<string, { yPosition: number; height: number; columnIndex: number }> } => {
   const columns: GridItem[][] = Array.from({ length: columnCount }, () => []);
-  const columnHeights = Array(columnCount).fill(0);
   const itemPositions = new Map<
     string,
     { yPosition: number; height: number; columnIndex: number }
   >();
+  const cellSize = COLUMN_WIDTH + GRID_GAP;
 
-  // Remove stale column assignments
-  const currentIds = new Set(items.map((item) => item.id));
-  Array.from(itemColumnMap.keys()).forEach((id) => {
-    if (!currentIds.has(id)) {
-      itemColumnMap.delete(id);
-    }
-  });
+  items.forEach((item, index) => {
+    const columnIndex = index % columnCount;
+    const rowIndex = Math.floor(index / columnCount);
+    const yPosition = rowIndex * cellSize + GRID_GAP;
+    const itemHeight = COLUMN_WIDTH;
 
-  // If preserving positions, maintain column heights to prevent layout redraws
-  if (preserveExistingPositions && previousPositions.size > 0) {
-    // Find the minimum and maximum yPosition per column for remaining items
-    const minPositionPerColumn = Array(columnCount).fill(Infinity);
-    const maxPositionPerColumn = Array(columnCount).fill(-Infinity);
-    const maxHeightPerColumn = Array(columnCount).fill(0);
-    
-    items.forEach((item) => {
-      const prevPos = previousPositions.get(item.id);
-      if (prevPos) {
-        const col = prevPos.columnIndex;
-        minPositionPerColumn[col] = Math.min(
-          minPositionPerColumn[col],
-          prevPos.yPosition,
-        );
-        maxPositionPerColumn[col] = Math.max(
-          maxPositionPerColumn[col],
-          prevPos.yPosition,
-        );
-        // Track the maximum height at the bottom of each column
-        maxHeightPerColumn[col] = Math.max(
-          maxHeightPerColumn[col],
-          prevPos.yPosition + prevPos.height,
-        );
-      }
-    });
-
-    // Set initial column heights based on maximum position in each column
-    // This preserves the layout structure even when items are removed from top
-    for (let i = 0; i < columnCount; i++) {
-      if (maxHeightPerColumn[i] > 0) {
-        // Column height should be the maximum bottom position of remaining items
-        // This ensures new items continue from the right place
-        columnHeights[i] = maxHeightPerColumn[i];
-      } else if (minPositionPerColumn[i] !== Infinity) {
-        // Fallback: use minimum position if no items have been measured yet
-        columnHeights[i] = minPositionPerColumn[i] - GRID_GAP;
-      } else {
-        columnHeights[i] = 0;
-      }
-    }
-  }
-
-  items.forEach((item) => {
-    const existingColumn = itemColumnMap.get(item.id);
-
-    // Choose a stable column: reuse previous assignment, otherwise pick shortest
-    const columnIndex =
-      existingColumn ??
-      columnHeights.indexOf(Math.min(...columnHeights));
-
-    // Persist the assignment
-    itemColumnMap.set(item.id, columnIndex);
-
-    // Calculate item height
-    const itemHeight = getItemHeight(item);
-
-    // If preserving positions and item has a previous position in the same column, use it
-    let yPosition: number;
-    const prevPos = previousPositions.get(item.id);
-    if (preserveExistingPositions && prevPos && prevPos.columnIndex === columnIndex) {
-      // Keep the absolute position to prevent visual jumps when items are removed from top
-      yPosition = prevPos.yPosition;
-      // Update column height to account for this item (ensures new items continue correctly)
-      columnHeights[columnIndex] = Math.max(
-        columnHeights[columnIndex],
-        yPosition + itemHeight,
-      );
-    } else {
-      // Calculate new position
-      yPosition = columnHeights[columnIndex] + GRID_GAP;
-      columnHeights[columnIndex] += itemHeight + GRID_GAP;
-    }
-
-    // Store item position
     itemPositions.set(item.id, {
       yPosition,
       height: itemHeight,
       columnIndex,
     });
-
-    // Add item to that column
     columns[columnIndex].push(item);
   });
 
@@ -262,7 +127,7 @@ export function FeedGridView({
   onItemOffset,
   onScrollComplete,
 }: FeedGridViewProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [visibleItems, setVisibleItems] = useState<Set<string>>(new Set());
   const visibleItemsRef = useRef<Set<string>>(new Set());
   const scrollViewRef = useRef<ScrollView>(null);
@@ -270,26 +135,10 @@ export function FeedGridView({
   const lastScrolledToPostIdRef = useRef<string | null>(null); // Track what we've scrolled to
   const lastScrollContentHeightRef = useRef<number>(0); // Track content height when we last scrolled
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Track retry timeout for cleanup
-  const lastCompensationRef = useRef<number>(0); // Track when we last compensated scroll to prevent double compensation
   const [isAtEnd, setIsAtEnd] = useState(false);
 
-  // Track scroll direction for position preservation
-  const lastScrollYRef = useRef<number>(0);
-  const scrollDirectionRef = useRef<'up' | 'down' | 'none'>('none');
-  // When the user scrolls back to the top, we need to recalculate layout from y=0 so
-  // the first items appear at the top instead of leaving empty space (black screen).
-  // Bumping this signal forces the layout useMemo to re-run; at that point scrollDirectionRef
-  // is already 'none' so positions are not preserved and items start at y=0.
-  const [scrollAtTopLayoutResetSignal, setScrollAtTopLayoutResetSignal] =
-    useState(0);
-  // Only bump the signal once per "visit" to the top so we don't re-run layout every frame.
-  const scrollAtTopTriggeredRef = useRef(false);
-
-  // Store item positions for visibility tracking (estimated from distributeItemsToColumns)
+  // Store item positions for visibility tracking (from distributeItemsToColumns)
   const itemPositionsRef = useRef<
-    Map<string, { yPosition: number; height: number; columnIndex: number }>
-  >(new Map());
-  const previousItemPositionsRef = useRef<
     Map<string, { yPosition: number; height: number; columnIndex: number }>
   >(new Map());
   // Store actual measured positions from onLayout handlers
@@ -298,8 +147,6 @@ export function FeedGridView({
   >(new Map());
   // Track which items have been measured to avoid redundant measurements
   const measuredItemsRef = useRef<Set<string>>(new Set());
-  // Persist column choices to avoid reshuffling when items are trimmed/added
-  const itemColumnMapRef = useRef<Map<string, number>>(new Map());
   const lastVisibilityUpdateRef = useRef<number>(0);
   const lastScrollMetricsRef = useRef<{
     scrollY: number;
@@ -441,25 +288,9 @@ export function FeedGridView({
       }
     });
 
-    // Determine if we should preserve existing positions
-    // Preserve when:
-    // 1. Scrolling down to prevent layout shifts
-    // 2. Items are removed from the top (to prevent column origin reset and layout redraw)
-    const currentIds = new Set(items.map((item) => item.id));
-    const previousIds = new Set(itemPositionsRef.current.keys());
-    const itemsRemoved = previousIds.size > 0 && 
-      Array.from(previousIds).some(id => !currentIds.has(id));
-    const shouldPreservePositions = scrollDirectionRef.current === 'down' || itemsRemoved;
-
-    // Distribute items across columns for masonry layout and get position info
+    // Distribute items across columns for square grid and get position info
     const { columns: distributedColumns, itemPositions } =
-      distributeItemsToColumns(
-        items,
-        COLUMN_COUNT,
-        itemColumnMapRef.current,
-        shouldPreservePositions,
-        itemPositionsRef.current,
-      );
+      distributeItemsToColumns(items, COLUMN_COUNT);
 
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
@@ -482,9 +313,7 @@ export function FeedGridView({
       columnHeights,
       maxColumnHeight,
     };
-    // scrollAtTopLayoutResetSignal: when user scrolls to top we bump it so layout
-    // recalculates from y=0 and the first items are visible instead of empty space
-  }, [posts, scrollAtTopLayoutResetSignal]);
+  }, [posts]);
 
   // Clean up stale actual positions when items are removed
   useEffect(() => {
@@ -503,46 +332,6 @@ export function FeedGridView({
       }
     });
   }, [gridItems]);
-
-  // When items are trimmed from the top (e.g. feed cap), detect removals and update
-  // the previous-positions snapshot. IMPORTANT: we do NOT adjust scrollY here.
-  // Grid cells use absolute positioning with preserved yPosition, so when items
-  // are removed from the top, remaining items stay at the same vertical position.
-  // The viewport (scrollY) should therefore stay unchanged — the user continues
-  // to see the same content. Adjusting scrollY (e.g. scrollTo(currentY - shift))
-  // would move the viewport up and cause an unwanted "jump back up" so the user
-  // would have to scroll down again. That compensation was correct for the old
-  // flex layout (where content reflowed and moved up) but is wrong for absolute
-  // positioning; do not re-add scroll compensation in this effect.
-  useEffect(() => {
-    const prevPositions = previousItemPositionsRef.current;
-    if (!prevPositions || prevPositions.size === 0) {
-      previousItemPositionsRef.current = new Map(itemPositionsRef.current);
-      return;
-    }
-
-    // Detect removed items (used only to decide whether to update snapshot below;
-    // we intentionally do not use removedPositions to change scroll)
-    const currentIds = new Set(gridItems.map((item) => item.id));
-    const removedPositions: {
-      yPosition: number;
-      height: number;
-      columnIndex: number;
-    }[] = [];
-
-    prevPositions.forEach((pos, id) => {
-      if (!currentIds.has(id)) {
-        removedPositions.push(pos);
-      }
-    });
-
-    if (removedPositions.length > 0 && scrollViewRef.current) {
-      // Do NOT call scrollTo or modify scrollY. Leave scroll position unchanged.
-    }
-
-    // Update previous positions snapshot for the next comparison
-    previousItemPositionsRef.current = new Map(itemPositionsRef.current);
-  }, [gridItems, isNearBottom]);
 
   // Create mapping from wrapper postId to post index for proactive loading
   const postIdToIndexMap = useMemo(() => {
@@ -742,9 +531,6 @@ export function FeedGridView({
     ) {
       lastScrollSignalRef.current = scrollToTopSignal;
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-      // Reset scroll direction when manually scrolling to top
-      scrollDirectionRef.current = 'none';
-      lastScrollYRef.current = 0;
     }
   }, [scrollToTopSignal]);
 
@@ -827,7 +613,7 @@ export function FeedGridView({
       const post = postIdToPostMap.get(item.displayPostId);
       const isFavorited = post?.favourited || false;
 
-      // Absolute positioning from preserved positions so cells stay fixed when top items are removed
+      // Absolute positioning for square grid layout
       const pos = itemPositionsRef.current.get(item.id);
       const positioningStyle = pos
         ? {
@@ -873,7 +659,7 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[styles.gridItem, positioningStyle, sizeStyle]}
+            style={[styles.gridItem, positioningStyle, sizeStyle, { backgroundColor: "#8E8E8E" }]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -921,7 +707,7 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[styles.gridItem, positioningStyle, sizeStyle]}
+            style={[styles.gridItem, positioningStyle, sizeStyle, { backgroundColor: "#8E8E8E" }]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -930,7 +716,7 @@ export function FeedGridView({
               <Image
                 source={{ uri: item.card.image }}
                 style={styles.image}
-                contentFit="cover"
+                contentFit="contain"
                 transition={200}
               />
             )}
@@ -957,11 +743,6 @@ export function FeedGridView({
                 <Text style={styles.favoriteIcon}>❤️</Text>
               </View>
             )}
-
-            {/* Link indicator */}
-            <View style={styles.linkIndicator}>
-              <Text style={styles.linkIcon}>🔗</Text>
-            </View>
           </TouchableOpacity>
         );
       }
@@ -987,15 +768,15 @@ export function FeedGridView({
             styles.textItem,
             positioningStyle,
             sizeStyle,
-            { backgroundColor: colors.card },
+            { backgroundColor: "#8E8E8E" },
           ]}
           onPress={itemClickHandler}
           activeOpacity={0.8}
         >
           <View style={styles.textContent}>
             <Text
-              style={[styles.textPreview, { color: colors.text }]}
-              numberOfLines={Math.floor((itemHeight - 16) / 16)}
+              style={[styles.textPreview, { color: isDark ? colors.text : "#000000" }]}
+              numberOfLines={Math.floor((COLUMN_WIDTH - 16) / 16)}
               ellipsizeMode="tail"
               adjustsFontSizeToFit={false}
             >
@@ -1012,7 +793,7 @@ export function FeedGridView({
         </TouchableOpacity>
       );
     },
-    [handleItemPress, colors, visibleItems, postIdToPostMap],
+    [handleItemPress, colors, isDark, visibleItems, postIdToPostMap],
   );
 
   const renderFooter = useCallback(() => {
@@ -1051,38 +832,6 @@ export function FeedGridView({
       const scrollY = contentOffset.y;
       const viewportHeight = layoutMeasurement.height;
       const contentHeight = contentSize.height;
-
-      // Track scroll direction
-      const scrollDelta = scrollY - lastScrollYRef.current;
-      if (Math.abs(scrollDelta) > 5) { // Ignore tiny movements
-        const newDirection = scrollDelta > 0 ? 'down' : 'up';
-
-        // If near the top of the scroll, reset to 'none' to allow layout recalculation
-        if (scrollY < viewportHeight * 0.5) {
-          scrollDirectionRef.current = 'none';
-        } else {
-          scrollDirectionRef.current = newDirection;
-        }
-
-        lastScrollYRef.current = scrollY;
-      }
-
-      // When the user scrolls back to the top, trigger a layout reset so items start at
-      // y=0. After posts were trimmed from the top, remaining items keep preserved
-      // yPositions (e.g. 2000+), so at scrollY=0 the user would see empty space (black).
-      // Bumping scrollAtTopLayoutResetSignal causes the layout useMemo to re-run with
-      // scrollDirectionRef === 'none', so we recalculate from 0 and the first items
-      // appear at the top. We only bump once per visit (scrollAtTopTriggeredRef) so we
-      // don't re-run layout on every scroll event while at the top.
-      const atTopThreshold = Math.min(80, viewportHeight * 0.15);
-      if (scrollY <= atTopThreshold) {
-        if (!scrollAtTopTriggeredRef.current) {
-          scrollAtTopTriggeredRef.current = true;
-          setScrollAtTopLayoutResetSignal((s) => s + 1);
-        }
-      } else {
-        scrollAtTopTriggeredRef.current = false;
-      }
 
       // Persist latest scroll metrics for re-evaluation on content changes
       lastScrollMetricsRef.current = {
@@ -1261,7 +1010,6 @@ const styles = StyleSheet.create({
     maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
   },
   gridItem: {
-    backgroundColor: "#F0F0F0",
     overflow: "hidden",
     position: "relative",
     borderRadius: 4,
@@ -1308,17 +1056,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     lineHeight: 14,
-  },
-  linkIndicator: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    borderRadius: 4,
-    padding: 4,
-  },
-  linkIcon: {
-    fontSize: 12,
   },
   // Text tile styles
   textItem: {

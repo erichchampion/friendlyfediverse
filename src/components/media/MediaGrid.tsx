@@ -276,7 +276,7 @@ export function MediaGrid({
               return (
                 <View
                   key={`${item.id}-${index}`}
-                  style={[styles.mediaItem, styles.gridMediaItem]}
+                  style={[styles.mediaItem, styles.gridMediaItem, { backgroundColor: "#8E8E8E" }]}
                   pointerEvents="box-none"
                 >
                   {isVideo ? (
@@ -292,7 +292,7 @@ export function MediaGrid({
                       <Image
                         source={{ uri: item.previewUrl || item.url }}
                         style={styles.image}
-                        contentFit="cover"
+                        contentFit="contain"
                         transition={200}
                       />
                       {/* More images indicator */}

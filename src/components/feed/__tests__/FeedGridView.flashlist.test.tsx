@@ -2,8 +2,8 @@
  * FlashList Migration Tests for FeedGridView (Grid View)
  * TDD Approach: Tests written BEFORE implementation
  *
- * These tests define the expected behavior for grid view FlashList migration
- * with custom masonry layout using CellRendererComponent.
+ * These tests define the expected behavior for grid view FlashList migration.
+ * Grid view uses a uniform square layout (not masonry) with round-robin distribution.
  */
 
 import React from "react";
@@ -103,18 +103,17 @@ describe("FeedGridView FlashList Migration", () => {
     });
   });
 
-  describe("masonry layout", () => {
-    it("should distribute items to shortest column", () => {
-      // distributeItemsToColumns should assign each item to column with lowest height
-      // Verify masonry algorithm works correctly
-      // TODO: Create items with varying heights, verify distribution
+  describe("square grid layout", () => {
+    it("should distribute items using round-robin by index", () => {
+      // distributeItemsToColumns assigns columnIndex = index % 3
+      // Verify round-robin distribution
+      // TODO: Create items, verify column 0 gets indices 0,3,6; column 1 gets 1,4,7; etc.
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should preserve column assignments across pagination", () => {
-      // itemColumnMapRef should maintain which column each item belongs to
-      // When new items load, existing items stay in their columns
-      // TODO: Load more items, verify column assignments don't change for existing items
+    it("should use uniform square cell size for all items", () => {
+      // All cells are COLUMN_WIDTH x COLUMN_WIDTH
+      // TODO: Verify all items have same height
       expect(true).toBe(true); // Placeholder
     });
 
@@ -125,10 +124,9 @@ describe("FeedGridView FlashList Migration", () => {
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should calculate heights based on aspect ratio", () => {
-      // Item height should be calculated from width and aspect ratio
-      // Constrained between 16:9 (tallest) and 9:16 (shortest)
-      // TODO: Test items with various aspect ratios
+    it("should use contain fit for media within square cells", () => {
+      // Images/videos fit within square using contentFit="contain"
+      // TODO: Verify MediaGrid and card images use contain
       expect(true).toBe(true); // Placeholder
     });
 
@@ -228,32 +226,17 @@ describe("FeedGridView FlashList Migration", () => {
     });
   });
 
-  describe("trimming compensation", () => {
-    it("should compensate scroll when items removed from top", () => {
-      // When posts are trimmed from memory, adjust scroll position
-      // Prevent scroll jump
-      // TODO: Trim items, verify scroll adjustment
+  describe("trimming and reflow", () => {
+    it("should recalculate layout when items removed from top", () => {
+      // Square grid uses deterministic layout; positions recalculate when posts change
+      // Content may reflow (acceptable trade-off for simpler layout)
+      // TODO: Trim items, verify layout recalculates
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should calculate per-column height shifts", () => {
-      // Trimming affects each column differently based on which items removed
-      // Calculate height removed from each column
-      // TODO: Test trimming with items in different columns
-      expect(true).toBe(true); // Placeholder
-    });
-
-    it("should maintain scroll position within 10px tolerance", () => {
-      // After trimming and compensation, scroll drift should be <10px
-      // Verify accuracy
-      // TODO: Measure scroll position before/after trim
-      expect(true).toBe(true); // Placeholder
-    });
-
-    it("should update itemPositionsRef after trimming", () => {
-      // Remaining items should have updated Y positions
-      // Account for removed items above them
-      // TODO: Verify positions recalculated
+    it("should update itemPositionsRef when gridItems change", () => {
+      // itemPositionsRef is updated from distributeItemsToColumns in useMemo
+      // TODO: Verify positions recalculated when posts change
       expect(true).toBe(true); // Placeholder
     });
   });
@@ -296,10 +279,9 @@ describe("FeedGridView FlashList Migration", () => {
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should maintain masonry layout when new items load", () => {
-      // New items should be distributed across columns
-      // Existing items should not reflow
-      // TODO: Load more items, verify layout stability
+    it("should maintain square grid layout when new items load", () => {
+      // New items distributed via round-robin; layout is deterministic
+      // TODO: Load more items, verify layout
       expect(true).toBe(true); // Placeholder
     });
 
@@ -326,9 +308,9 @@ describe("FeedGridView FlashList Migration", () => {
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should recalculate masonry layout after refresh", () => {
+    it("should recalculate grid layout after refresh", () => {
       // New data might have different items
-      // Masonry should recalculate from scratch
+      // Layout recalculates from useMemo when posts change
       // TODO: Refresh, verify layout recalculation
       expect(true).toBe(true); // Placeholder
     });
@@ -395,10 +377,9 @@ describe("FeedGridView FlashList Migration", () => {
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should handle items with extreme aspect ratios", () => {
-      // Very tall (9:16) or very wide (16:9) items
-      // Should constrain heights appropriately
-      // TODO: Test with extreme ratios
+    it("should display items with varying aspect ratios in uniform squares", () => {
+      // All items use same square cell; contentFit="contain" fits media within cell
+      // TODO: Test with varying aspect ratios
       expect(true).toBe(true); // Placeholder
     });
 
@@ -410,8 +391,8 @@ describe("FeedGridView FlashList Migration", () => {
     });
 
     it("should handle missing aspect ratio data", () => {
-      // If media meta is missing, use fallback aspect ratio
-      // Should not crash
+      // Square grid uses uniform height regardless of media meta
+      // Should not crash with missing meta
       // TODO: Test with missing meta
       expect(true).toBe(true); // Placeholder
     });
