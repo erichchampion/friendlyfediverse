@@ -11,6 +11,11 @@ import {
   getDirectionalTimelinePaginator,
   type TimelinePaginator,
 } from "@lib/api/mastodonRequests";
+import { createFeedPostStore } from "@lib/feed/feedPostStore";
+import {
+  createFeedCacheController,
+  type FeedCacheController,
+} from "@lib/feed/feedCacheController";
 
 type TrimDirection = "dropFromEnd" | "dropFromStart";
 
@@ -124,6 +129,8 @@ interface UseFeedOptions {
   limit?: number;
   cacheKey?: string;
   enableCache?: boolean;
+  /** Optional feed cache controller (for testing or when using intermediate cache layer) */
+  feedCacheController?: FeedCacheController;
 }
 
 // Action types for reducer
@@ -328,8 +335,16 @@ export function useFeed(options: UseFeedOptions) {
     limit = FEED_CONFIG.DEFAULT_PAGE_SIZE,
     cacheKey,
     enableCache = true,
+    feedCacheController: injectedFeedCacheController,
   } = options;
   const { instance } = useAuth();
+
+  const feedStoreRef = useRef<ReturnType<typeof createFeedPostStore> | null>(null);
+  const feedControllerRef = useRef<FeedCacheController | null>(null);
+  const prefetchOlderInFlightRef = useRef(false);
+  const prefetchNewerInFlightRef = useRef(false);
+  const lastPrefetchedOlderMaxIdRef = useRef<string | null>(null);
+  const lastPrefetchedNewerSinceIdRef = useRef<string | null>(null);
 
   const [state, dispatch] = useReducer(feedReducer, {
     posts: [],
@@ -563,9 +578,98 @@ export function useFeed(options: UseFeedOptions) {
   });
   feedConfigRef.current = { feedType, feedId, limit, cacheKey, enableCache };
 
+  // Feed cache layer: use injected controller (tests) or create one when enableCache && cacheKey
+  useEffect(() => {
+    prefetchOlderInFlightRef.current = false;
+    prefetchNewerInFlightRef.current = false;
+    lastPrefetchedOlderMaxIdRef.current = null;
+    lastPrefetchedNewerSinceIdRef.current = null;
+
+    if (injectedFeedCacheController) {
+      feedControllerRef.current = injectedFeedCacheController;
+      return;
+    }
+    if (!enableCache || !cacheKey) {
+      feedControllerRef.current = null;
+      feedStoreRef.current = null;
+      return;
+    }
+    const store = feedStoreRef.current ?? createFeedPostStore();
+    feedStoreRef.current = store;
+    const cacheServerPageSize = FEED_CONFIG.MAX_PAGE_SIZE;
+    feedControllerRef.current = createFeedCacheController(store, {
+      feedKey: cacheKey,
+      pageSize: cacheServerPageSize,
+      fetchLatest: () => fetchPosts({ limit: cacheServerPageSize }),
+      fetchContextAround: async (targetPostId: string) => {
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
+        const anchorStatus = await withRetry(
+          () => activeClient.client.v1.statuses.$select(targetPostId).fetch(),
+          RequestPriority.NORMAL,
+          `status_${targetPostId}`,
+        );
+        const context = await withRetry(
+          () => activeClient.client.v1.statuses.$select(targetPostId).context.fetch(),
+          RequestPriority.NORMAL,
+          `context_${targetPostId}`,
+        );
+        const anchorPost = transformStatus(anchorStatus);
+        const ancestors = context.ancestors.map(transformStatus);
+        const descendants = context.descendants.map(transformStatus);
+        return [...descendants.reverse(), anchorPost, ...ancestors];
+      },
+      fetchOlderPage: async (maxId: string, pageLimit: number) => {
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
+        const paginator = getDirectionalTimelinePaginator(
+          activeClient.client,
+          feedType,
+          feedId,
+          "older",
+          { maxId, limit: pageLimit },
+        );
+        const result = await withRetry(
+          async () => {
+            const page = await paginator.next();
+            return page.value || [];
+          },
+          RequestPriority.LOW,
+        );
+        return result.map(transformStatus);
+      },
+      fetchNewerPage: async (sinceId: string, pageLimit: number) => {
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
+        const paginator = getDirectionalTimelinePaginator(
+          activeClient.client,
+          feedType,
+          feedId,
+          "newer",
+          { sinceId, limit: pageLimit },
+        );
+        const result = await withRetry(
+          async () => {
+            const page = await paginator.next();
+            return page.value || [];
+          },
+          RequestPriority.LOW,
+        );
+        return result.map(transformStatus);
+      },
+    });
+  }, [
+    enableCache,
+    cacheKey,
+    injectedFeedCacheController,
+    fetchPosts,
+    feedType,
+    feedId,
+  ]);
+
   /**
-   * Initial load - try cache first, then fetch
-   * This function is NOT in useEffect dependencies to avoid infinite loops
+   * Initial load - always request latest from server first (no cache as initial source).
+   * When using feed cache layer, controller.getInitialSlice({ limit }) does fetchLatest and populates store.
    */
   const loadFeed = useCallback(async () => {
     if (!instance) {
@@ -578,58 +682,24 @@ export function useFeed(options: UseFeedOptions) {
       dispatch({ type: "LOAD_START" });
 
       const config = feedConfigRef.current;
+      const controller = feedControllerRef.current;
 
-      // Try loading from cache first
-      if (config.enableCache && config.cacheKey) {
-        try {
-          const cached = await storageService.getCachedPosts(config.cacheKey);
-          if (cached && cached.length > 0) {
-            const isValid = await storageService.isCacheValid(
-              config.cacheKey,
-              CACHE_EXPIRATION.FEED,
-            );
-            if (isValid) {
-              console.log(`[useFeed] load CACHED: ${cached.length} posts`);
-              dispatch({
-                type: "LOAD_SUCCESS",
-                posts: trimPostsToLimit(cached, "dropFromEnd", state.viewportPosition),
-                hasMore: true,
-                anchorPostId: null,
-              });
-
-              // Fetch fresh data in background to validate cache freshness
-              // Note: We don't update the cache here to avoid overwriting the full
-              // cached feed with just the top 20 posts. Cache will update on next load.
-              fetchPosts()
-                .then((posts) => {
-                  console.log(
-                    `[useFeed] load BACKGROUND: ${posts.length} posts (freshness check)`,
-                  );
-                })
-                .catch((error) => {
-                  console.error("[useFeed] Background fetch error:", error);
-                });
-
-              return;
-            }
-          }
-        } catch (error) {
-          console.error("Error loading from cache:", error);
-        }
+      if (controller) {
+        const posts = await controller.getInitialSlice({ limit: config.limit });
+        const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
+        const hasMore = posts.length > 0;
+        console.log(`[useFeed] load CACHE_LAYER: ${posts.length} posts, hasMore=${hasMore}`);
+        dispatch({ type: "LOAD_SUCCESS", posts: boundedPosts, hasMore, anchorPostId: null });
+        return;
       }
 
-      // No cache, fetch from API
-      console.log("[useFeed] load NO CACHE, fetching from API");
+      console.log("[useFeed] load NO CACHE LAYER, fetching from API");
       const posts = await fetchPosts();
       const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
       const hasMore = posts.length > 0;
-
-      console.log(
-        `[useFeed] load API: ${posts.length} posts, hasMore=${hasMore}`,
-      );
+      console.log(`[useFeed] load API: ${posts.length} posts, hasMore=${hasMore}`);
       dispatch({ type: "LOAD_SUCCESS", posts: boundedPosts, hasMore, anchorPostId: null });
 
-      // Save to cache
       if (config.enableCache && config.cacheKey) {
         await storageService
           .saveCachedPosts(config.cacheKey, boundedPosts)
@@ -642,31 +712,37 @@ export function useFeed(options: UseFeedOptions) {
         error: error instanceof Error ? error.message : "Failed to load feed",
       });
     }
-  }, [instance, fetchPosts]); // Only depend on instance and fetchPosts
+  }, [instance, fetchPosts]);
 
   /**
    * Refresh - pull to refresh
-   * Resets iterators and fetches fresh posts from the top
+   * Resets iterators and fetches fresh posts from the top (same as initial load with no target)
    */
   const refresh = useCallback(async () => {
     try {
       console.log("[useFeed] refresh START");
       dispatch({ type: "REFRESH_START" });
 
-      // Reset iterators to start fresh
       resetIterators();
+      lastPrefetchedOlderMaxIdRef.current = null;
+      lastPrefetchedNewerSinceIdRef.current = null;
+
+      const config = feedConfigRef.current;
+      const controller = feedControllerRef.current;
+
+      if (controller) {
+        const posts = await controller.getInitialSlice({ limit: config.limit });
+        const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
+        const hasMore = posts.length > 0;
+        dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
+        return;
+      }
 
       const posts = await fetchPosts();
       const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
       const hasMore = posts.length > 0;
-
-      console.log(
-        `[useFeed] refresh COMPLETE: ${posts.length} posts, hasMore=${hasMore}`,
-      );
       dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
 
-      // Save to cache
-      const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
         await storageService
           .saveCachedPosts(config.cacheKey, boundedPosts)
@@ -707,7 +783,6 @@ export function useFeed(options: UseFeedOptions) {
       `[useFeed] loadMore CALLED: hasMore=${state.hasMore}, isLoadingMore=${state.isLoadingMore}, postsCount=${state.posts.length}`,
     );
 
-    // Guard checks with detailed logging
     if (state.posts.length === 0) {
       console.log("[useFeed] loadMore BLOCKED: No posts yet");
       return;
@@ -722,6 +797,96 @@ export function useFeed(options: UseFeedOptions) {
 
     if (state.isLoadingMore) {
       console.log("[useFeed] loadMore BLOCKED: Already loading");
+      return;
+    }
+
+    const controller = feedControllerRef.current;
+    if (controller) {
+      try {
+        dispatch({ type: "LOAD_MORE_START" });
+        const config = feedConfigRef.current;
+        const oldestId = state.posts[state.posts.length - 1].id;
+        let olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+        let didRetryFromEndOfCache = false;
+
+        // Cache empty for this boundary: either server was marked exhausted (retry once) or we need first prefetch
+        if (olderPosts.length === 0) {
+          if (controller.isOlderServerExhausted()) {
+            controller.clearOlderServerExhausted();
+            await controller.prefetchOlderPage(oldestId);
+            olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+            didRetryFromEndOfCache = true;
+          } else if (
+            !prefetchOlderInFlightRef.current &&
+            lastPrefetchedOlderMaxIdRef.current !== oldestId
+          ) {
+            // No older posts in cache yet; fetch one page now so this loadMore returns results
+            lastPrefetchedOlderMaxIdRef.current = oldestId;
+            prefetchOlderInFlightRef.current = true;
+            await controller
+              .prefetchOlderPage(oldestId)
+              .catch((err) => {
+                console.error("[useFeed] prefetchOlderPage error:", err);
+                if (lastPrefetchedOlderMaxIdRef.current === oldestId) {
+                  lastPrefetchedOlderMaxIdRef.current = null;
+                }
+              })
+              .finally(() => {
+                prefetchOlderInFlightRef.current = false;
+              });
+            olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+          }
+        }
+
+        const existingIds = new Set(state.posts.map((p) => p.id));
+        const uniqueNew = olderPosts.filter((p) => !existingIds.has(p.id));
+        const updatedPosts = [...state.posts, ...uniqueNew];
+        const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
+        const exhausted = controller.isOlderServerExhausted();
+        const hasMore =
+          uniqueNew.length > 0
+            ? true
+            : didRetryFromEndOfCache
+              ? false
+              : exhausted
+                ? true
+                : true; // Keep true when cache was empty but server not exhausted (e.g. prefetch failed)
+        dispatch({
+          type: "LOAD_MORE_SUCCESS",
+          posts: boundedPosts,
+          trimDirection: "dropFromStart",
+          hasMore,
+        });
+        // Background prefetch next page when we have posts and more may exist
+        const nextOldestId =
+          uniqueNew.length > 0 ? uniqueNew[uniqueNew.length - 1].id : oldestId;
+        const shouldPrefetchOlder =
+          uniqueNew.length > 0 &&
+          !controller.isOlderServerExhausted() &&
+          !prefetchOlderInFlightRef.current &&
+          lastPrefetchedOlderMaxIdRef.current !== nextOldestId;
+        if (shouldPrefetchOlder) {
+          lastPrefetchedOlderMaxIdRef.current = nextOldestId;
+          prefetchOlderInFlightRef.current = true;
+          controller
+            .prefetchOlderPage(nextOldestId)
+            .catch((err) => {
+              console.error("[useFeed] prefetchOlderPage error:", err);
+              if (lastPrefetchedOlderMaxIdRef.current === nextOldestId) {
+                lastPrefetchedOlderMaxIdRef.current = null;
+              }
+            })
+            .finally(() => {
+              prefetchOlderInFlightRef.current = false;
+            });
+        }
+      } catch (error) {
+        console.error("[useFeed] Error loading more posts:", error);
+        dispatch({
+          type: "LOAD_MORE_ERROR",
+          error: error instanceof Error ? error.message : "Failed to load more posts",
+        });
+      }
       return;
     }
 
@@ -953,7 +1118,6 @@ export function useFeed(options: UseFeedOptions) {
       `[useFeed] loadNewer CALLED: postsCount=${state.posts.length}, isLoadingMore=${state.isLoadingMore}`,
     );
 
-    // Guard checks
     if (state.posts.length === 0) {
       console.log("[useFeed] loadNewer BLOCKED: No posts yet");
       return;
@@ -961,6 +1125,45 @@ export function useFeed(options: UseFeedOptions) {
 
     if (state.isLoadingMore) {
       console.log("[useFeed] loadNewer BLOCKED: Already loading");
+      return;
+    }
+
+    const controller = feedControllerRef.current;
+    if (controller) {
+      try {
+        dispatch({ type: "LOAD_NEWER_START" });
+        const config = feedConfigRef.current;
+        const newestId = state.posts[0].id;
+        const newerPosts = await controller.getNewerSlice(newestId, config.limit);
+        const existingIds = new Set(state.posts.map((p) => p.id));
+        const uniqueNew = newerPosts.filter((p) => !existingIds.has(p.id));
+        if (uniqueNew.length === 0) {
+          dispatch({ type: "LOAD_NEWER_ERROR", error: null });
+          return;
+        }
+        dispatch({ type: "QUEUE_NEWER_POSTS", newPosts: uniqueNew });
+        const shouldPrefetchNewer =
+          !prefetchNewerInFlightRef.current &&
+          lastPrefetchedNewerSinceIdRef.current !== newestId;
+        if (shouldPrefetchNewer) {
+          lastPrefetchedNewerSinceIdRef.current = newestId;
+          prefetchNewerInFlightRef.current = true;
+          controller
+            .prefetchNewerPage(newestId)
+            .catch((err) => {
+              console.error("[useFeed] prefetchNewerPage error:", err);
+              if (lastPrefetchedNewerSinceIdRef.current === newestId) {
+                lastPrefetchedNewerSinceIdRef.current = null;
+              }
+            })
+            .finally(() => {
+              prefetchNewerInFlightRef.current = false;
+            });
+        }
+      } catch (error) {
+        console.error("[useFeed] Error loading newer posts:", error);
+        dispatch({ type: "LOAD_NEWER_ERROR", error: error instanceof Error ? error.message : "Failed to load newer" });
+      }
       return;
     }
 
@@ -1246,8 +1449,7 @@ export function useFeed(options: UseFeedOptions) {
 
   /**
    * Load feed from a specific anchor post
-   * Fetches the post and surrounding context (ancestors/descendants)
-   * This eliminates the need for scroll position estimation
+   * When using feed cache layer: check cache first; if target in cache use slice (no server); else fetch context from server
    */
   const loadFromAnchor = useCallback(
     async (postId: string) => {
@@ -1255,48 +1457,45 @@ export function useFeed(options: UseFeedOptions) {
         console.log(`[useFeed] loadFromAnchor START: postId=${postId}`);
         dispatch({ type: "LOAD_FROM_ANCHOR_START" });
 
-        // Reset iterators to clear old pagination state
         resetIterators();
 
-        const activeClient = await getActiveClient();
-        if (!activeClient) {
-          throw new Error("No active client");
+        const config = feedConfigRef.current;
+        const controller = feedControllerRef.current;
+
+        if (controller) {
+          const posts = await controller.getInitialSlice({
+            targetPostId: postId,
+            limit: config.limit,
+            contextSize: 10,
+          });
+          dispatch({
+            type: "LOAD_FROM_ANCHOR_SUCCESS",
+            posts,
+            hasMore: posts.length > 0,
+            anchorPostId: postId,
+          });
+          resetIterators();
+          return;
         }
 
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
         const { client } = activeClient;
 
-        // Fetch the anchor post itself
         const anchorStatus = await withRetry(
           () => client.v1.statuses.$select(postId).fetch(),
           RequestPriority.NORMAL,
           `status_${postId}`,
         );
         const anchorPost = transformStatus(anchorStatus);
-
-        console.log(`[useFeed] loadFromAnchor: Fetched anchor post ${postId}`);
-
-        // Fetch context (ancestors and descendants)
         const context = await withRetry(
           () => client.v1.statuses.$select(postId).context.fetch(),
           RequestPriority.NORMAL,
           `context_${postId}`,
         );
-
-        console.log(
-          `[useFeed] loadFromAnchor: Fetched context - ${context.ancestors.length} ancestors, ${context.descendants.length} descendants`,
-        );
-
-        // Transform ancestors and descendants to Post type
         const ancestors = context.ancestors.map(transformStatus);
         const descendants = context.descendants.map(transformStatus);
-
-        // Combine in chronological order (newest first)
-        // descendants are newer than anchor, ancestors are older
         const posts = [...descendants.reverse(), anchorPost, ...ancestors];
-
-        console.log(
-          `[useFeed] loadFromAnchor COMPLETE: total=${posts.length} posts`,
-        );
 
         dispatch({
           type: "LOAD_FROM_ANCHOR_SUCCESS",
@@ -1304,12 +1503,8 @@ export function useFeed(options: UseFeedOptions) {
           hasMore: ancestors.length > 0,
           anchorPostId: postId,
         });
-
-        // Reset iterators after loading from anchor
         resetIterators();
 
-        // Save to cache
-        const config = feedConfigRef.current;
         if (config.enableCache && config.cacheKey) {
           await storageService
             .saveCachedPosts(config.cacheKey, posts)

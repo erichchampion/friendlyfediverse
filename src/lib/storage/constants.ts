@@ -30,6 +30,14 @@ export const STORAGE_LIMITS = {
 } as const;
 
 /**
+ * Feed cache configuration (intermediate cache layer for timeline posts)
+ */
+export const FEED_CACHE_CONFIG = {
+  MAX_POSTS_PER_FEED: 4096,
+  PREFETCH_DELAY_MS: 300, // Optional delay between background prefetch pages
+} as const;
+
+/**
  * Request queue configuration
  */
 export const REQUEST_QUEUE_CONFIG = {
