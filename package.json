@@ -45,7 +45,7 @@
     "expo-video": "~3.0.14",
     "expo-web-browser": "~15.0.9",
     "lodash": "^4.17.21",
-    "masto": "7.4.0",
+    "masto": "^7.10.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

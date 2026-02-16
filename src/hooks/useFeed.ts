@@ -42,7 +42,6 @@ const trimPostsToLimit = (
   // If viewport position is provided, use smart trimming
   if (viewportPosition) {
     const { firstVisibleIndex, lastVisibleIndex } = viewportPosition;
-    const visibleRange = lastVisibleIndex - firstVisibleIndex;
     const bufferStart = Math.max(0, firstVisibleIndex - viewportBuffer);
     const bufferEnd = Math.min(posts.length, lastVisibleIndex + viewportBuffer);
 
@@ -52,15 +51,23 @@ const trimPostsToLimit = (
       return posts;
     }
 
-    // Determine which end to trim from based on viewport position
+    // When direction is "dropFromStart" (loadMore / older posts), always trim from start.
+    // Stale viewport (e.g. grid with throttled updates) would otherwise pick the wrong end
+    // and trim the newly loaded posts instead of the far end.
     const distanceFromStart = firstVisibleIndex;
     const distanceFromEnd = posts.length - lastVisibleIndex;
 
     let trimmed: Post[];
+    let trimFromStart: boolean;
 
-    if (distanceFromStart < distanceFromEnd) {
-      // Viewport is closer to start, trim from end
-      // But only trim posts beyond the buffer
+    if (direction === "dropFromStart") {
+      // We appended older posts; always trim from start so we keep the new data.
+      trimFromStart = true;
+      const amount = Math.min(overflow, chunkSize);
+      trimmed = posts.slice(amount);
+    } else if (distanceFromStart < distanceFromEnd) {
+      // dropFromEnd: viewport closer to start, trim from end
+      trimFromStart = false;
       const trimFromEnd = Math.min(
         overflow,
         Math.max(0, posts.length - bufferEnd),
@@ -68,28 +75,41 @@ const trimPostsToLimit = (
       );
       trimmed = posts.slice(0, posts.length - trimFromEnd);
     } else {
-      // Viewport is closer to end, trim from start
-      // But only trim posts before the buffer
-      const trimFromStart = Math.min(
+      // dropFromEnd: viewport closer to end, trim from start
+      trimFromStart = true;
+      const trimAmount = Math.min(
         overflow,
         Math.max(0, bufferStart),
         chunkSize,
       );
-      trimmed = posts.slice(trimFromStart);
+      trimmed = trimAmount > 0 ? posts.slice(trimAmount) : posts;
     }
 
-    // If still over threshold, trim more (but respect buffer)
+    // If still over threshold, trim more (same end as first trim)
     if (trimmed.length > trimThreshold) {
       const remainingOverflow = trimmed.length - bufferSize;
       if (remainingOverflow > 0) {
         const additionalTrim = Math.min(remainingOverflow, chunkSize);
-        if (distanceFromStart < distanceFromEnd) {
-          trimmed = trimmed.slice(0, trimmed.length - additionalTrim);
-        } else {
+        if (trimFromStart) {
           trimmed = trimmed.slice(additionalTrim);
+        } else {
+          trimmed = trimmed.slice(0, trimmed.length - additionalTrim);
         }
       }
     }
+
+    console.log(
+      `[trimPostsToLimit] direction=${direction}, before=${posts.length}, after=${trimmed.length}, trimFromStart=${trimFromStart}`,
+    );
+    // #region agent log
+    console.log("[dbg][H4] trim applied", {
+      direction,
+      before: posts.length,
+      after: trimmed.length,
+      trimFromStart,
+    });
+    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:trimPostsToLimit',message:'Trim applied',data:{direction,before:posts.length,after:trimmed.length,trimFromStart},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion agent log
 
     return trimmed;
   }
@@ -841,7 +861,16 @@ export function useFeed(options: UseFeedOptions) {
         const existingIds = new Set(state.posts.map((p) => p.id));
         const uniqueNew = olderPosts.filter((p) => !existingIds.has(p.id));
         const updatedPosts = [...state.posts, ...uniqueNew];
-        const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
+        const boundedPosts = trimPostsToLimit(
+          updatedPosts,
+          "dropFromStart",
+          state.viewportPosition,
+        );
+        if (updatedPosts.length > UI_CONFIG.TRIM_THRESHOLD) {
+          console.log(
+            `[useFeed] loadMore CACHE: older=${olderPosts.length}, unique=${uniqueNew.length}, total=${updatedPosts.length}, trimmed=${boundedPosts.length}`,
+          );
+        }
         const exhausted = controller.isOlderServerExhausted();
         const hasMore =
           uniqueNew.length > 0
@@ -1592,6 +1621,7 @@ export function useFeed(options: UseFeedOptions) {
   return {
     ...state,
     pendingNewPosts: state.pendingNewPosts,
+    viewportPosition: state.viewportPosition,
     refresh,
     loadMore,
     loadNewer,

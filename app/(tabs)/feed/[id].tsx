@@ -139,6 +139,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const {
     posts,
     pendingNewPosts,
+    viewportPosition,
     isLoading,
     isRefreshing,
     isLoadingMore,
@@ -268,40 +269,57 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       prevPosts[0]?.id && posts[0]?.id && prevPosts[0].id !== posts[0].id;
     const lengthStable = posts.length === prevPosts.length;
 
-    if (firstChanged && lengthStable && !isGridView && flashListRef.current) {
+    if (firstChanged && lengthStable) {
       const currentIds = new Set(posts.map((p) => p.id));
       const removedIds = prevPosts
         .filter((p) => !currentIds.has(p.id))
         .map((p) => p.id);
 
       if (removedIds.length > 0) {
-        // Calculate removed height from item layouts (header + content)
-        const removedItemIds = new Set<string>();
-        removedIds.forEach((postId) => {
-          removedItemIds.add(`${postId}-header`);
-          removedItemIds.add(`${postId}-content`);
-        });
+        if (!isGridView && flashListRef.current) {
+          // List view: compensate scroll using measured item heights
+          const removedItemIds = new Set<string>();
+          removedIds.forEach((postId) => {
+            removedItemIds.add(`${postId}-header`);
+            removedItemIds.add(`${postId}-content`);
+          });
 
-        let removedHeight = 0;
-        removedItemIds.forEach((itemId) => {
-          const layout = itemLayoutsRef.current.get(itemId);
-          if (layout) {
-            removedHeight += layout.height;
+          let removedHeight = 0;
+          removedItemIds.forEach((itemId) => {
+            const layout = itemLayoutsRef.current.get(itemId);
+            if (layout) {
+              removedHeight += layout.height;
+            }
+          });
+
+          if (removedHeight > 0) {
+            const { y } = lastScrollMetricsRef.current;
+            flashListRef.current.scrollToOffset({
+              offset: Math.max(0, y - removedHeight),
+              animated: false,
+            });
           }
-        });
-
-        if (removedHeight > 0) {
-          const { y } = lastScrollMetricsRef.current;
-          flashListRef.current.scrollToOffset({
-            offset: Math.max(0, y - removedHeight),
-            animated: false,
+        }
+        
+        // Grid view: scroll compensation happens in FeedGridView. We must update
+        // viewport position SYNCHRONOUSLY so the next trim uses correct indices.
+        // When we remove K posts from start, all remaining posts shift down by K indices.
+        if (isGridView) {
+          const removedCount = removedIds.length;
+          const prevFirst = viewportPosition?.firstVisibleIndex ?? 0;
+          const prevLast = viewportPosition?.lastVisibleIndex ?? 0;
+          const newFirst = Math.max(0, prevFirst - removedCount);
+          const newLast = Math.max(0, prevLast - removedCount);
+          updateViewportPosition({
+            firstVisibleIndex: newFirst,
+            lastVisibleIndex: newLast,
           });
         }
       }
     }
 
     prevPostsRef.current = posts;
-  }, [posts, isGridView]);
+  }, [posts, isGridView, viewportPosition, updateViewportPosition]);
 
   // Remove stale layout entries when posts change or view switches
   useEffect(() => {
