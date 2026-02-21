@@ -124,9 +124,9 @@ describe("FeedGridView FlashList Migration", () => {
       expect(true).toBe(true); // Placeholder
     });
 
-    it("should use contain fit for media within square cells", () => {
-      // Images/videos fit within square using contentFit="contain"
-      // TODO: Verify MediaGrid and card images use contain
+    it("should use cover fit for media within square cells", () => {
+      // Images/videos fill square cells using contentFit="cover"
+      // TODO: Verify MediaGrid and card images use cover
       expect(true).toBe(true); // Placeholder
     });
 
@@ -378,7 +378,7 @@ describe("FeedGridView FlashList Migration", () => {
     });
 
     it("should display items with varying aspect ratios in uniform squares", () => {
-      // All items use same square cell; contentFit="contain" fits media within cell
+      // All items use same square cell; contentFit="cover" fills media to cell
       // TODO: Test with varying aspect ratios
       expect(true).toBe(true); // Placeholder
     });

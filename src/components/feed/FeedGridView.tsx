@@ -23,7 +23,7 @@ import { UI_CONFIG } from "@/config";
 /**
  * Feed Grid View Component
  * Displays items from posts in a uniform square grid
- * Supports media, URL cards, and text-only posts with contain-fit imagery
+ * Supports media, URL cards, and text-only posts with cover-fit imagery
  */
 
 interface FeedGridViewProps {
@@ -943,7 +943,7 @@ export function FeedGridView({
               <Image
                 source={{ uri: item.card.image }}
                 style={styles.image}
-                contentFit="contain"
+                contentFit="cover"
                 transition={200}
               />
             )}

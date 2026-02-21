@@ -89,6 +89,10 @@ mastodon-rn/
    - Press `i` in the terminal to open iOS simulator
    - Or scan the QR code with Expo Go app on your iPhone
 
+5. **Building from Xcode:**  
+   Open the **workspace** (not the project) and use a **simulator** as the run destination.  
+   See [docs/XCODE_BUILD.md](docs/XCODE_BUILD.md) for details and troubleshooting (e.g. "No such module 'Expo'" or module map not found).
+
 ### Development Commands
 
 ```bash

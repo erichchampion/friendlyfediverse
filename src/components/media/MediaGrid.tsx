@@ -292,7 +292,7 @@ export function MediaGrid({
                       <Image
                         source={{ uri: item.previewUrl || item.url }}
                         style={styles.image}
-                        contentFit="contain"
+                        contentFit="cover"
                         transition={200}
                       />
                       {/* More images indicator */}
