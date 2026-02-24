@@ -12,7 +12,11 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
-import { FlashList, type FlashListRef, type ViewToken } from "@shopify/flash-list";
+import {
+  FlashList,
+  type FlashListRef,
+  type ViewToken,
+} from "@shopify/flash-list";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
@@ -105,12 +109,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   );
   const visibleSectionsRef = useRef<Set<string>>(new Set());
   const lastVisibilityUpdateRef = useRef<number>(0);
-  const postLayoutsRef = useRef<
-    Map<string, { y: number; height: number }>
-  >(new Map());
-  const itemLayoutsRef = useRef<
-    Map<string, { y: number; height: number }>
-  >(new Map());
+  const postLayoutsRef = useRef<Map<string, { y: number; height: number }>>(
+    new Map(),
+  );
+  const itemLayoutsRef = useRef<Map<string, { y: number; height: number }>>(
+    new Map(),
+  );
   const averagePostHeightRef = useRef<number>(
     Dimensions.get("window").height * 0.6,
   ); // runtime-derived fallback
@@ -175,13 +179,13 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Transform posts into header/content items for sticky headers
   const feedItems = useMemo(
     () => transformPostsToFeedItems(displayPosts),
-    [displayPosts]
+    [displayPosts],
   );
 
   // Calculate sticky header indices (all even indices: 0, 2, 4, ...)
   const stickyIndices = useMemo(
     () => calculateStickyIndices(feedItems),
-    [feedItems]
+    [feedItems],
   );
 
   // Initialize visible sections when posts load
@@ -227,15 +231,23 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Scroll to target post when switching to list view
   useEffect(() => {
-    if (!isGridView && currentPostIdRef.current && flashListRef.current && feedItems.length > 0) {
+    if (
+      !isGridView &&
+      currentPostIdRef.current &&
+      flashListRef.current &&
+      feedItems.length > 0
+    ) {
       const targetPostId = currentPostIdRef.current;
       const targetIndex = feedItems.findIndex(
-        (item) => item.post.id === targetPostId || item.post.reblog?.id === targetPostId
+        (item) =>
+          item.post.id === targetPostId ||
+          item.post.reblog?.id === targetPostId,
       );
 
       if (targetIndex >= 0) {
         // Scroll to header (even indices: 0, 2, 4...)
-        const headerIndex = targetIndex % 2 === 0 ? targetIndex : targetIndex - 1;
+        const headerIndex =
+          targetIndex % 2 === 0 ? targetIndex : targetIndex - 1;
 
         // Use InteractionManager to scroll after render completes
         InteractionManager.runAfterInteractions(() => {
@@ -300,7 +312,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
             });
           }
         }
-        
+
         // Grid view: scroll compensation happens in FeedGridView. We must update
         // viewport position SYNCHRONOUSLY so the next trim uses correct indices.
         // When we remove K posts from start, all remaining posts shift down by K indices.
@@ -325,7 +337,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   useEffect(() => {
     const validIds = new Set(displayPosts.map((p) => p.id));
     const validItemIds = new Set(
-      displayPosts.flatMap((p) => [`${p.id}-header`, `${p.id}-content`])
+      displayPosts.flatMap((p) => [`${p.id}-header`, `${p.id}-content`]),
     );
 
     // Clean up post layouts
@@ -352,13 +364,16 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Handle FlashList viewable items changed - this is the reliable way to track visibility
   const handleFlashListViewableItemsChanged = useCallback(
-    (info: { viewableItems: ViewToken<FeedItem>[]; changed: ViewToken<FeedItem>[] }) => {
+    (info: {
+      viewableItems: ViewToken<FeedItem>[];
+      changed: ViewToken<FeedItem>[];
+    }) => {
       const visiblePostIds = new Set<string>();
       const visibleIndices: number[] = [];
 
       // Extract post IDs from viewable content items (videos are in content, not headers)
       info.viewableItems.forEach(({ item, index }) => {
-        if (item && item.type === 'content') {
+        if (item && item.type === "content") {
           visiblePostIds.add(item.post.id);
           if (index !== null && index !== undefined) {
             visibleIndices.push(index);
@@ -394,7 +409,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         if (postIndices.length > 0) {
           const firstVisibleIndex = Math.min(...postIndices);
           const lastVisibleIndex = Math.max(...postIndices);
-          
+
           // Update viewport position for smart trimming
           updateViewportPosition({
             firstVisibleIndex,
@@ -640,7 +655,8 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Handle scroll event for end detection and visibility tracking
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
       const scrollY = contentOffset.y;
       const viewportHeight = layoutMeasurement.height;
       const contentHeight = contentSize.height;
@@ -651,12 +667,14 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // Proactive loading: trigger when within N viewport heights from bottom
       // This ensures posts load well before reaching the end, maintaining a large buffer
       const distanceFromBottom = contentHeight - (scrollY + viewportHeight);
-      const proactiveThreshold = viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
+      const proactiveThreshold =
+        viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
       const isNearBottom = distanceFromBottom <= proactiveThreshold;
 
       // Fallback to pixel-based threshold for very small viewports
       const isNearBottomPixels =
-        viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
+        viewportHeight + scrollY >=
+        contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
 
       if ((isNearBottom || isNearBottomPixels) && !isLoadingMore && hasMore) {
         const now = Date.now();
@@ -739,7 +757,10 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Wrap the feed's viewable items callback to track first visible post in grid view
   const handleGridViewableItemsChanged = useCallback(
-    (info: { viewableItems: { index: number | null; item: any }[]; changed: any[] }) => {
+    (info: {
+      viewableItems: { index: number | null; item: any }[];
+      changed: any[];
+    }) => {
       // Track first visible post in grid view for view transitions
       if (info.viewableItems.length > 0 && info.viewableItems[0]?.item) {
         const firstItem = info.viewableItems[0].item;
@@ -753,7 +774,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // In grid view, FeedGridView already provides post indices directly
       const visibleIndices: number[] = [];
       info.viewableItems.forEach(({ index }) => {
-        if (index !== null && index !== undefined && index >= 0 && index < displayPosts.length) {
+        if (
+          index !== null &&
+          index !== undefined &&
+          index >= 0 &&
+          index < displayPosts.length
+        ) {
           visibleIndices.push(index);
         }
       });
@@ -761,7 +787,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       if (visibleIndices.length > 0) {
         const firstVisibleIndex = Math.min(...visibleIndices);
         const lastVisibleIndex = Math.max(...visibleIndices);
-        
+
         // Update viewport position for smart trimming
         updateViewportPosition({
           firstVisibleIndex,
@@ -774,7 +800,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         feedHandleViewableItemsChanged(info);
       }
     },
-    [feedHandleViewableItemsChanged, displayPosts, updateViewportPosition]
+    [feedHandleViewableItemsChanged, displayPosts, updateViewportPosition],
   );
 
   // Handle media press in grid view
@@ -876,12 +902,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         console.error("Error toggling favorite:", error);
         // Roll back on error
         updatePost(postId, (post) =>
-          applyFavouriteStateToPost(
-            post,
-            postId,
-            previousState,
-            previousCount,
-          ),
+          applyFavouriteStateToPost(post, postId, previousState, previousCount),
         );
         Alert.alert("Error", "Failed to update favorite. Please try again.");
       }
@@ -978,7 +999,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         />
       ) : !isTransitioning ? (
         <FlashList<FeedItem>
-          key={`feed-list-${feedType}-${feedId || 'default'}`}
+          key={`feed-list-${feedType}-${feedId || "default"}`}
           ref={flashListRef}
           data={feedItems}
           renderItem={renderFlashListItem}

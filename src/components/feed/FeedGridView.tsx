@@ -9,7 +9,14 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
-import { useCallback, useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { Image } from "expo-image";
 import type { Post, MediaAttachment, Card } from "@types";
 import { useTheme } from "@contexts/ThemeContext";
@@ -82,15 +89,20 @@ const COLUMN_WIDTH =
 // Uniform square cell size for predictable layout
 const getItemHeight = (_item: GridItem): number => COLUMN_WIDTH;
 
-// Distribute items across columns using STABLE indices (not array positions).
-// This ensures that removing items from the start doesn't cause column reassignment.
+// Distribute items across columns using ARRAY indices.
+// This ensures the grid is always filled from top to bottom with no gaps.
+// Items may shift columns when others are removed, but this is expected behavior.
 // Returns columns and a map of item positions for visibility tracking
 const distributeItemsToColumns = (
   items: GridItem[],
   columnCount: number,
-  stableIndexMap: Map<string, number>, // itemId -> stableIndex
-  nextStableIndexRef: { current: number }, // Next available stable index
-): { columns: GridItem[][]; itemPositions: Map<string, { yPosition: number; height: number; columnIndex: number }> } => {
+): {
+  columns: GridItem[][];
+  itemPositions: Map<
+    string,
+    { yPosition: number; height: number; columnIndex: number }
+  >;
+} => {
   const columns: GridItem[][] = Array.from({ length: columnCount }, () => []);
   const itemPositions = new Map<
     string,
@@ -98,33 +110,10 @@ const distributeItemsToColumns = (
   >();
   const cellSize = COLUMN_WIDTH + GRID_GAP;
 
-  // Assign stable indices to new items (items not yet in the map)
-  items.forEach((item) => {
-    if (!stableIndexMap.has(item.id)) {
-      stableIndexMap.set(item.id, nextStableIndexRef.current++);
-    }
-  });
-
-  // Remove stable indices for items that no longer exist
-  const currentItemIds = new Set(items.map((item) => item.id));
-  stableIndexMap.forEach((_, itemId) => {
-    if (!currentItemIds.has(itemId)) {
-      stableIndexMap.delete(itemId);
-    }
-  });
-
-  // Sort items by their stable index to maintain order
-  const sortedItems = [...items].sort((a, b) => {
-    const indexA = stableIndexMap.get(a.id) ?? Infinity;
-    const indexB = stableIndexMap.get(b.id) ?? Infinity;
-    return indexA - indexB;
-  });
-
-  // Distribute using stable indices (not array positions)
-  sortedItems.forEach((item) => {
-    const stableIndex = stableIndexMap.get(item.id)!;
-    const columnIndex = stableIndex % columnCount;
-    const rowIndex = Math.floor(stableIndex / columnCount);
+  // Distribute items using array indices - always fills from top-left
+  items.forEach((item, arrayIndex) => {
+    const columnIndex = arrayIndex % columnCount;
+    const rowIndex = Math.floor(arrayIndex / columnCount);
     const yPosition = rowIndex * cellSize + GRID_GAP;
     const itemHeight = COLUMN_WIDTH;
 
@@ -168,14 +157,7 @@ export function FeedGridView({
   const itemPositionsRef = useRef<
     Map<string, { yPosition: number; height: number; columnIndex: number }>
   >(new Map());
-  const prevItemPositionsRef = useRef<
-    Map<string, { yPosition: number; height: number; columnIndex: number }>
-  >(new Map());
-  
-  // Stable index mapping: itemId -> stableIndex (persists across renders)
-  // This ensures column assignments don't change when items are removed
-  const stableIndexMapRef = useRef<Map<string, number>>(new Map());
-  const nextStableIndexRef = useRef<number>(0);
+
   // Store actual measured positions from onLayout handlers
   const actualItemPositionsRef = useRef<
     Map<string, { y: number; height: number }>
@@ -203,8 +185,7 @@ export function FeedGridView({
   const prevAnchorItemRef = useRef<typeof anchorItemRef.current>(null);
   const endReachedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Track previous posts to detect trim and compensate scroll position
-  const prevPostsRef = useRef<Post[]>([]);
+  // Track previous grid item IDs for cleanup
   const prevGridItemIdsRef = useRef<Set<string>>(new Set());
 
   // Use centralized HTML utility
@@ -234,19 +215,25 @@ export function FeedGridView({
   // Helper to determine if the user is near the bottom of the scrollable area
   // Uses viewport-based proactive loading to maintain large buffer
   const isNearBottom = useCallback(
-    (metrics: { scrollY: number; viewportHeight: number; contentHeight: number }) => {
+    (metrics: {
+      scrollY: number;
+      viewportHeight: number;
+      contentHeight: number;
+    }) => {
       const { scrollY, viewportHeight, contentHeight } = metrics;
-      
+
       // Proactive loading: trigger when within N viewport heights from bottom
       // This ensures posts load well before reaching the end, maintaining a large buffer
       const distanceFromBottom = contentHeight - (scrollY + viewportHeight);
-      const proactiveThreshold = viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
+      const proactiveThreshold =
+        viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
       const isNearBottomViewport = distanceFromBottom <= proactiveThreshold;
-      
+
       // Fallback to pixel-based threshold for very small viewports
       const isNearBottomPixels =
-        viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
-      
+        viewportHeight + scrollY >=
+        contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
+
       return isNearBottomViewport || isNearBottomPixels;
     },
     [],
@@ -281,10 +268,6 @@ export function FeedGridView({
 
   // Extract all items from posts (media, cards, or text) and distribute to columns
   const { gridItems, columns, columnHeights, maxColumnHeight } = useMemo(() => {
-    // IMPORTANT: Capture previous positions BEFORE updating itemPositionsRef.
-    // This ensures prevItemPositionsRef has the pre-trim state for compensation.
-    prevItemPositionsRef.current = new Map(itemPositionsRef.current);
-
     const items: GridItem[] = [];
 
     posts.forEach((post) => {
@@ -340,10 +323,10 @@ export function FeedGridView({
       }
     });
 
-    // Distribute items across columns using STABLE indices (not array positions).
-    // This ensures removing items from the start doesn't cause column reassignment.
+    // Distribute items across columns using array indices.
+    // This ensures the grid is always filled from top to bottom with no gaps.
     const { columns: distributedColumns, itemPositions } =
-      distributeItemsToColumns(items, COLUMN_COUNT, stableIndexMapRef.current, nextStableIndexRef);
+      distributeItemsToColumns(items, COLUMN_COUNT);
 
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
@@ -386,156 +369,12 @@ export function FeedGridView({
     });
   }, [gridItems]);
 
-  // Note: prevItemPositionsRef is now updated inside the useMemo BEFORE itemPositionsRef
-  // changes, ensuring we capture the pre-trim state correctly for scroll compensation.
-
   useEffect(() => {
     prevGridItemIdsRef.current = new Set(gridItems.map((item) => item.id));
   }, [gridItems]);
 
-  // Track previous grid items to detect how many were removed
-  const prevGridItemsRef = useRef<GridItem[]>([]);
-
-  // Compensate scroll position when posts are trimmed from the start (buffer full).
-  // NEW APPROACH: Calculate compensation based on ROWS removed, not individual item positions.
-  // When posts are removed, grid items redistribute across columns (round-robin by index),
-  // causing column shifts. We compensate by calculating how many rows were removed.
-  // CRITICAL: Use useLayoutEffect to run synchronously BEFORE paint.
-  useLayoutEffect(() => {
-    const prev = prevPostsRef.current;
-    prevPostsRef.current = posts;
-
-    if (prev.length === 0 || posts.length === 0) {
-      // #region agent log
-      console.log("[dbg][H2] trim skip no posts", {
-        prevLen: prev.length,
-        curLen: posts.length,
-      });
-      // #endregion agent log
-      prevGridItemsRef.current = gridItems;
-      return;
-    }
-
-    const firstCurrentPost = posts[0];
-    const firstPrevPost = prev[0];
-    const firstChanged =
-      firstPrevPost?.id &&
-      firstCurrentPost?.id &&
-      firstPrevPost.id !== firstCurrentPost.id;
-    if (!firstChanged) {
-      // #region agent log
-      console.log("[dbg][H5] trim skip first unchanged", {
-        prevFirst: firstPrevPost?.id,
-        curFirst: firstCurrentPost?.id,
-        prevLen: prev.length,
-        curLen: posts.length,
-      });
-      // #endregion agent log
-      prevGridItemsRef.current = gridItems;
-      return;
-    }
-    // #region agent log
-    console.log("[dbg][H5] trim detected first changed", {
-      prevFirst: firstPrevPost?.id,
-      curFirst: firstCurrentPost?.id,
-      prevLen: prev.length,
-      curLen: posts.length,
-    });
-    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'FeedGridView.tsx:trim-detected',message:'Trim detected (first changed)',data:{prevFirst:firstPrevPost?.id,curFirst:firstCurrentPost?.id,prevLen:prev.length,curLen:posts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H18'})}).catch(()=>{});
-    // #endregion agent log
-
-    const { scrollY, viewportHeight } = lastScrollMetricsRef.current;
-    const prevGridItems = prevGridItemsRef.current;
-    prevGridItemsRef.current = gridItems;
-
-    // Calculate how many grid items were removed
-    const prevItemIds = new Set(prevGridItems.map((item) => item.id));
-    const currentItemIds = new Set(gridItems.map((item) => item.id));
-    const removedItemIds = new Set<string>();
-    prevItemIds.forEach((id) => {
-      if (!currentItemIds.has(id)) {
-        removedItemIds.add(id);
-      }
-    });
-    const itemsRemoved = removedItemIds.size;
-
-    // Calculate rows removed: itemsRemoved / COLUMN_COUNT (round up)
-    const rowsRemoved = Math.ceil(itemsRemoved / COLUMN_COUNT);
-    const cellSize = COLUMN_WIDTH + GRID_GAP;
-    const compensationDelta = rowsRemoved * cellSize;
-
-    // #region agent log
-    console.log("[dbg][H18] trim row-based compensation", {
-      itemsRemoved,
-      rowsRemoved,
-      cellSize,
-      compensationDelta,
-      prevGridItemsLen: prevGridItems.length,
-      curGridItemsLen: gridItems.length,
-      scrollY,
-      stableIndexMapSize: stableIndexMapRef.current.size,
-    });
-    
-    // Check for column shifts: with stable indices, there should be NONE
-    const columnShifts: Array<{ itemId: string; prevCol: number; newCol: number }> = [];
-    const prevPositions = prevItemPositionsRef.current;
-    const currentPositions = itemPositionsRef.current;
-    currentPositions.forEach((newPos, itemId) => {
-      const prevPos = prevPositions.get(itemId);
-      if (prevPos && prevPos.columnIndex !== newPos.columnIndex) {
-        columnShifts.push({
-          itemId,
-          prevCol: prevPos.columnIndex,
-          newCol: newPos.columnIndex,
-        });
-      }
-    });
-    console.log("[dbg][H18] column shifts check (should be 0 with stable indices)", {
-      columnShiftCount: columnShifts.length,
-      sampleShifts: columnShifts.slice(0, 5),
-      stableIndexMapSize: stableIndexMapRef.current.size,
-    });
-    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'FeedGridView.tsx:trim-row-compensation',message:'Row-based compensation calculated',data:{itemsRemoved,rowsRemoved,compensationDelta,prevGridItemsLen:prevGridItems.length,curGridItemsLen:gridItems.length,scrollY,columnShiftCount:columnShifts.length,stableIndexMapSize:stableIndexMapRef.current.size},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H18'})}).catch(()=>{});
-    // #endregion agent log
-
-    if (itemsRemoved === 0 || compensationDelta < 1) {
-      // #region agent log
-      console.log("[dbg][H18] trim skip no items removed or zero compensation", {
-        itemsRemoved,
-        compensationDelta,
-      });
-      // #endregion agent log
-      return;
-    }
-
-    // Apply compensation: scroll UP by the height of rows removed
-    const targetScrollY = Math.max(0, scrollY - compensationDelta);
-
-    console.log(
-      `[FeedGridView] Trim compensation (row-based, stable indices): removed ${itemsRemoved} items (${rowsRemoved} rows), scrollY ${scrollY.toFixed(0)} -> ${targetScrollY.toFixed(0)}`
-    );
-    
-    // #region agent log
-    console.log("[dbg][H18] trim compensation applying", {
-      itemsRemoved,
-      rowsRemoved,
-      compensationDelta,
-      scrollY,
-      targetScrollY,
-    });
-    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'FeedGridView.tsx:trim-applied-row',message:'Row-based compensation applied',data:{itemsRemoved,rowsRemoved,compensationDelta,scrollY,targetScrollY},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'H18'})}).catch(()=>{});
-    // #endregion agent log
-
-    scrollViewRef.current?.scrollTo({
-      y: targetScrollY,
-      animated: false,
-    });
-    
-    lastScrollMetricsRef.current = {
-      ...lastScrollMetricsRef.current,
-      scrollY: targetScrollY,
-    };
-  }, [gridItems]);
+  // Note: With array-based layout, items always start from yPosition 0.
+  // No scroll compensation needed - the grid naturally fills from top to bottom.
 
   // Create mapping from wrapper postId to post index for proactive loading
   const postIdToIndexMap = useMemo(() => {
@@ -654,19 +493,24 @@ export function FeedGridView({
     // 2. We have grid items
     // 3. Either we haven't scrolled to this post yet, OR content height has increased significantly (layout changed)
     const contentHeight = lastScrollMetricsRef.current.contentHeight;
-    const contentHeightIncreased = contentHeight > 0 &&
+    const contentHeightIncreased =
+      contentHeight > 0 &&
       lastScrollContentHeightRef.current > 0 &&
       contentHeight > lastScrollContentHeightRef.current * 1.2; // 20% increase indicates significant layout change
 
-    const shouldScroll = scrollToPostId &&
+    const shouldScroll =
+      scrollToPostId &&
       gridItems.length > 0 &&
       scrollViewRef.current &&
-      (scrollToPostId !== lastScrolledToPostIdRef.current || contentHeightIncreased);
+      (scrollToPostId !== lastScrolledToPostIdRef.current ||
+        contentHeightIncreased);
 
     if (shouldScroll) {
       // Find the first grid item for this post (check both feedItemId and displayPostId for reblogs)
       const targetItem = gridItems.find(
-        (item) => item.feedItemId === scrollToPostId || item.displayPostId === scrollToPostId,
+        (item) =>
+          item.feedItemId === scrollToPostId ||
+          item.displayPostId === scrollToPostId,
       );
 
       if (targetItem) {
@@ -681,7 +525,9 @@ export function FeedGridView({
         // Helper to scroll to target item with padding
         const scrollToItem = (position: { y: number; height: number }) => {
           const offset = position.y;
-          const viewportHeight = lastScrollMetricsRef.current.viewportHeight || Dimensions.get("window").height;
+          const viewportHeight =
+            lastScrollMetricsRef.current.viewportHeight ||
+            Dimensions.get("window").height;
           const paddingOffset = calculatePaddingOffset(viewportHeight);
           const adjustedOffset = Math.max(0, offset - paddingOffset);
 
@@ -695,7 +541,8 @@ export function FeedGridView({
             animated: false,
           });
           lastScrolledToPostIdRef.current = scrollToPostId;
-          lastScrollContentHeightRef.current = lastScrollMetricsRef.current.contentHeight;
+          lastScrollContentHeightRef.current =
+            lastScrollMetricsRef.current.contentHeight;
 
           // Notify parent that scroll restoration completed
           if (onScrollComplete) {
@@ -704,7 +551,9 @@ export function FeedGridView({
         };
 
         // Check if we have the actual measured position for this item
-        const actualPosition = actualItemPositionsRef.current.get(targetItem.id);
+        const actualPosition = actualItemPositionsRef.current.get(
+          targetItem.id,
+        );
 
         if (actualPosition) {
           // Use actual measured position - this is accurate
@@ -724,7 +573,9 @@ export function FeedGridView({
             // Clear previous timeout ref
             retryTimeoutRef.current = null;
 
-            const measuredPosition = actualItemPositionsRef.current.get(targetItem.id);
+            const measuredPosition = actualItemPositionsRef.current.get(
+              targetItem.id,
+            );
             if (measuredPosition) {
               // Found it! Scroll now
               scrollToItem(measuredPosition);
@@ -735,7 +586,10 @@ export function FeedGridView({
           };
 
           // Start checking after initial delay
-          retryTimeoutRef.current = setTimeout(checkAndScroll, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+          retryTimeoutRef.current = setTimeout(
+            checkAndScroll,
+            UI_CONFIG.SCROLL_RECOVERY_DELAY,
+          );
         }
       }
       // If post not found, don't mark as scrolled - allow retry when new items load via pagination
@@ -774,8 +628,8 @@ export function FeedGridView({
 
   // Shared delayed click handler; per-item callbacks are supplied at call time
   const handleDelayedItemClick = useDelayedClick({
-    onSingleClick: () => { },
-    onDoubleClick: () => { },
+    onSingleClick: () => {},
+    onDoubleClick: () => {},
   });
 
   // Create click handler for an item
@@ -803,33 +657,45 @@ export function FeedGridView({
     if (!ref) return;
 
     // Use measureInWindow to get absolute position, then convert to ScrollView-relative
-    ref.measureInWindow?.((x: number, y: number, width: number, height: number) => {
-      // Validate measurements
-      if (typeof y !== 'number' || y < 0 || typeof height !== 'number' || height <= 0) {
-        return;
-      }
+    ref.measureInWindow?.(
+      (x: number, y: number, width: number, height: number) => {
+        // Validate measurements
+        if (
+          typeof y !== "number" ||
+          y < 0 ||
+          typeof height !== "number" ||
+          height <= 0
+        ) {
+          return;
+        }
 
-      // We need the position relative to the ScrollView content, not the window
-      // measureInWindow gives us window-relative position
-      // We need to measure the ScrollView's position in window and subtract
-      if (scrollViewRef.current) {
-        scrollViewRef.current.measureInWindow?.((scrollX: number, scrollY: number) => {
-          // Validate scroll view measurements
-          if (typeof scrollY !== 'number' || scrollY < 0) {
-            return;
-          }
+        // We need the position relative to the ScrollView content, not the window
+        // measureInWindow gives us window-relative position
+        // We need to measure the ScrollView's position in window and subtract
+        if (scrollViewRef.current) {
+          scrollViewRef.current.measureInWindow?.(
+            (scrollX: number, scrollY: number) => {
+              // Validate scroll view measurements
+              if (typeof scrollY !== "number" || scrollY < 0) {
+                return;
+              }
 
-          // Get current scroll position
-          const scrollOffset = lastScrollMetricsRef.current.scrollY;
-          // Calculate position relative to ScrollView content
-          // y from measureInWindow is window-relative, scrollY is also window-relative
-          // We need content-relative position = (item window y - scrollView window y) + scrollOffset
-          const contentRelativeY = (y - scrollY) + scrollOffset;
+              // Get current scroll position
+              const scrollOffset = lastScrollMetricsRef.current.scrollY;
+              // Calculate position relative to ScrollView content
+              // y from measureInWindow is window-relative, scrollY is also window-relative
+              // We need content-relative position = (item window y - scrollView window y) + scrollOffset
+              const contentRelativeY = y - scrollY + scrollOffset;
 
-          actualItemPositionsRef.current.set(itemId, { y: contentRelativeY, height });
-        });
-      }
-    });
+              actualItemPositionsRef.current.set(itemId, {
+                y: contentRelativeY,
+                height,
+              });
+            },
+          );
+        }
+      },
+    );
   }, []);
 
   const renderItem = useCallback(
@@ -886,7 +752,12 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[styles.gridItem, positioningStyle, sizeStyle, { backgroundColor: "#8E8E8E" }]}
+            style={[
+              styles.gridItem,
+              positioningStyle,
+              sizeStyle,
+              { backgroundColor: "#8E8E8E" },
+            ]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -934,7 +805,12 @@ export function FeedGridView({
           <TouchableOpacity
             key={item.id}
             ref={itemRef}
-            style={[styles.gridItem, positioningStyle, sizeStyle, { backgroundColor: "#8E8E8E" }]}
+            style={[
+              styles.gridItem,
+              positioningStyle,
+              sizeStyle,
+              { backgroundColor: "#8E8E8E" },
+            ]}
             onPress={itemClickHandler}
             activeOpacity={0.8}
           >
@@ -1002,7 +878,10 @@ export function FeedGridView({
         >
           <View style={styles.textContent}>
             <Text
-              style={[styles.textPreview, { color: isDark ? colors.text : "#000000" }]}
+              style={[
+                styles.textPreview,
+                { color: isDark ? colors.text : "#000000" },
+              ]}
               numberOfLines={Math.floor((COLUMN_WIDTH - 16) / 16)}
               ellipsizeMode="tail"
               adjustsFontSizeToFit={false}
@@ -1109,7 +988,8 @@ export function FeedGridView({
         newVisibleItems.forEach((itemId) => {
           const pos = itemPositionsRef.current.get(itemId);
           if (!pos) return;
-          const inViewport = pos.yPosition >= scrollY && pos.yPosition <= viewportBottom;
+          const inViewport =
+            pos.yPosition >= scrollY && pos.yPosition <= viewportBottom;
           if (inViewport) {
             inViewportCount += 1;
           }
@@ -1145,12 +1025,65 @@ export function FeedGridView({
           gridItemsLen: gridItems.length,
           inViewportFound,
           inViewportCount,
-          anchorUpdated: Boolean(anchorId && Number.isFinite(anchorTop) && inViewportFound),
+          anchorUpdated: Boolean(
+            anchorId && Number.isFinite(anchorTop) && inViewportFound,
+          ),
         });
-        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'FeedGridView.tsx:handleScroll-anchor',message:'Anchor updated from visible items',data:{visibleCount:newVisibleItems.size,anchorId,anchorTop,scrollY,viewportHeight,contentHeight,gridItemsLen:gridItems.length,inViewportFound,inViewportCount,anchorUpdated:Boolean(anchorId && Number.isFinite(anchorTop) && inViewportFound)},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1'})}).catch(()=>{});
+        fetch(
+          "http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              location: "FeedGridView.tsx:handleScroll-anchor",
+              message: "Anchor updated from visible items",
+              data: {
+                visibleCount: newVisibleItems.size,
+                anchorId,
+                anchorTop,
+                scrollY,
+                viewportHeight,
+                contentHeight,
+                gridItemsLen: gridItems.length,
+                inViewportFound,
+                inViewportCount,
+                anchorUpdated: Boolean(
+                  anchorId && Number.isFinite(anchorTop) && inViewportFound,
+                ),
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              runId: "pre-fix",
+              hypothesisId: "H1",
+            }),
+          },
+        ).catch(() => {});
         // #endregion agent log
         // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'FeedGridView.tsx:handleScroll-anchor',message:'Anchor updated from visible items',data:{visibleCount:newVisibleItems.size,anchorId,anchorTop,scrollY,viewportHeight,contentHeight,gridItemsLen:gridItems.length},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1'})}).catch(()=>{});
+        fetch(
+          "http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              location: "FeedGridView.tsx:handleScroll-anchor",
+              message: "Anchor updated from visible items",
+              data: {
+                visibleCount: newVisibleItems.size,
+                anchorId,
+                anchorTop,
+                scrollY,
+                viewportHeight,
+                contentHeight,
+                gridItemsLen: gridItems.length,
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              runId: "pre-fix",
+              hypothesisId: "H1",
+            }),
+          },
+        ).catch(() => {});
         // #endregion agent log
 
         // 2. Track visible posts for proactive loading
@@ -1168,7 +1101,7 @@ export function FeedGridView({
           now - lastProactiveLoadCheckRef.current;
         if (
           timeSinceLastProactiveCheck >=
-          UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
+            UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
           const visiblePostsChanged = !setsEqual(
@@ -1239,7 +1172,9 @@ export function FeedGridView({
         const scrollY = lastScrollMetricsRef.current.scrollY;
 
         // Get current viewport height (fallback to window height if not yet measured)
-        const viewportHeight = lastScrollMetricsRef.current.viewportHeight || Dimensions.get('window').height;
+        const viewportHeight =
+          lastScrollMetricsRef.current.viewportHeight ||
+          Dimensions.get("window").height;
 
         // Update metrics first so downstream consumers see the latest size
         lastScrollMetricsRef.current = {
