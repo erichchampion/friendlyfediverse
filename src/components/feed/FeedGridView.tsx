@@ -89,43 +89,51 @@ const COLUMN_WIDTH =
 // Uniform square cell size for predictable layout
 const getItemHeight = (_item: GridItem): number => COLUMN_WIDTH;
 
-// Distribute items across columns using ARRAY indices.
-// This ensures the grid is always filled from top to bottom with no gaps.
-// Items may shift columns when others are removed, but this is expected behavior.
-// Returns columns and a map of item positions for visibility tracking
-const distributeItemsToColumns = (
+// Distribute items for an absolutely positioned flat grid.
+// This ensures that items remain in the same parent container and are not destroyed
+// and recreated when array indices shift due to trimming.
+const distributeItemsToGrid = (
   items: GridItem[],
   columnCount: number,
 ): {
-  columns: GridItem[][];
+  flatItems: GridItem[];
   itemPositions: Map<
     string,
-    { yPosition: number; height: number; columnIndex: number }
+    { xPosition: number; yPosition: number; height: number; columnIndex: number }
   >;
+  maxColumnHeight: number;
 } => {
-  const columns: GridItem[][] = Array.from({ length: columnCount }, () => []);
   const itemPositions = new Map<
     string,
-    { yPosition: number; height: number; columnIndex: number }
+    { xPosition: number; yPosition: number; height: number; columnIndex: number }
   >();
   const cellSize = COLUMN_WIDTH + GRID_GAP;
+  const columnHeights = Array(columnCount).fill(0);
 
-  // Distribute items using array indices - always fills from top-left
   items.forEach((item, arrayIndex) => {
     const columnIndex = arrayIndex % columnCount;
     const rowIndex = Math.floor(arrayIndex / columnCount);
+
+    // Calculate precise X and Y coordinates for absolute positioning
+    const xPosition = GRID_GAP + columnIndex * (COLUMN_WIDTH + GRID_GAP);
     const yPosition = rowIndex * cellSize + GRID_GAP;
     const itemHeight = COLUMN_WIDTH;
 
     itemPositions.set(item.id, {
+      xPosition,
       yPosition,
       height: itemHeight,
       columnIndex,
     });
-    columns[columnIndex].push(item);
+
+    // Track column heights to compute the final container height
+    const bottom = yPosition + itemHeight + GRID_GAP;
+    columnHeights[columnIndex] = Math.max(columnHeights[columnIndex], bottom);
   });
 
-  return { columns, itemPositions };
+  const maxColumnHeight = columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
+
+  return { flatItems: items, itemPositions, maxColumnHeight };
 };
 
 export function FeedGridView({
@@ -267,7 +275,7 @@ export function FeedGridView({
   );
 
   // Extract all items from posts (media, cards, or text) and distribute to columns
-  const { gridItems, columns, columnHeights, maxColumnHeight } = useMemo(() => {
+  const { gridItems, maxColumnHeight } = useMemo(() => {
     const items: GridItem[] = [];
 
     posts.forEach((post) => {
@@ -323,30 +331,16 @@ export function FeedGridView({
       }
     });
 
-    // Distribute items across columns using array indices.
-    // This ensures the grid is always filled from top to bottom with no gaps.
-    const { columns: distributedColumns, itemPositions } =
-      distributeItemsToColumns(items, COLUMN_COUNT);
+    // Distribute items for an absolutely positioned flat grid.
+    // This ensures that items remain in uniform positional states preventing DOM destruction.
+    const { flatItems, itemPositions, maxColumnHeight } =
+      distributeItemsToGrid(items, COLUMN_COUNT);
 
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
 
-    // Compute column heights for absolute-positioned layout (max bottom per column)
-    const columnHeights = Array(COLUMN_COUNT).fill(0);
-    itemPositions.forEach((pos) => {
-      const bottom = pos.yPosition + pos.height + GRID_GAP;
-      columnHeights[pos.columnIndex] = Math.max(
-        columnHeights[pos.columnIndex],
-        bottom,
-      );
-    });
-    const maxColumnHeight =
-      columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
-
     return {
-      gridItems: items,
-      columns: distributedColumns,
-      columnHeights,
+      gridItems: flatItems,
       maxColumnHeight,
     };
   }, [posts]);
@@ -474,7 +468,7 @@ export function FeedGridView({
   }, [gridItems, calculateVisibleItems]);
 
   // Scroll to target post when switching to grid view
-  // Allow re-scrolling if content height has increased significantly (layout changed)
+  // Track successful scrolling natively to prevent re-entering on layout bounds expansion
   useEffect(() => {
     // Clear any pending retry timeout when scrollToPostId changes or component unmounts
     if (retryTimeoutRef.current) {
@@ -482,28 +476,18 @@ export function FeedGridView({
       retryTimeoutRef.current = null;
     }
 
-    // Reset lastScrolledToPostIdRef when scrollToPostId changes (new transition)
+    // Reset indicator lock when scrollToPostId actively prop-swaps
     if (scrollToPostId && scrollToPostId !== lastScrolledToPostIdRef.current) {
       lastScrolledToPostIdRef.current = null;
       lastScrollContentHeightRef.current = 0;
     }
 
-    // Check if we should scroll:
-    // 1. scrollToPostId is set
-    // 2. We have grid items
-    // 3. Either we haven't scrolled to this post yet, OR content height has increased significantly (layout changed)
-    const contentHeight = lastScrollMetricsRef.current.contentHeight;
-    const contentHeightIncreased =
-      contentHeight > 0 &&
-      lastScrollContentHeightRef.current > 0 &&
-      contentHeight > lastScrollContentHeightRef.current * 1.2; // 20% increase indicates significant layout change
-
+    // Only scroll if we have NOT fulfilled the restoration request
     const shouldScroll =
       scrollToPostId &&
       gridItems.length > 0 &&
       scrollViewRef.current &&
-      (scrollToPostId !== lastScrolledToPostIdRef.current ||
-        contentHeightIncreased);
+      scrollToPostId !== lastScrolledToPostIdRef.current;
 
     if (shouldScroll) {
       // Find the first grid item for this post (check both feedItemId and displayPostId for reblogs)
@@ -603,7 +587,7 @@ export function FeedGridView({
         retryTimeoutRef.current = null;
       }
     };
-  }, [scrollToPostId, gridItems, columns, onItemOffset]);
+  }, [scrollToPostId, gridItems, onItemOffset]);
 
   useEffect(() => {
     if (
@@ -614,6 +598,50 @@ export function FeedGridView({
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     }
   }, [scrollToTopSignal]);
+
+  // Restore scroll position when items are inserted/removed
+  // We use useLayoutEffect because onContentSizeChange doesn't fire if height remains the same
+  // (e.g. trimming 40 posts from top while adding 40 posts to bottom in a uniform grid)
+  useLayoutEffect(() => {
+    // Only care about compensating if we have an anchor
+    const anchor = anchorItemRef.current;
+    if (!anchor || !scrollViewRef.current) return;
+
+    // Get the new position of our anchor item (which might have shifted indices)
+    const newPos = itemPositionsRef.current.get(anchor.id);
+    if (!newPos) return;
+
+    const currentScrollY = lastScrollMetricsRef.current.scrollY;
+
+    // Calculate expected scroll position to maintain anchor at exact screen offset
+    const expectedScrollY = Math.max(0, newPos.yPosition - anchor.offset);
+
+    // Check if we are physically pinned near the bottom
+    const contentHeight = lastScrollMetricsRef.current.contentHeight;
+    const viewportHeight = lastScrollMetricsRef.current.viewportHeight;
+
+    const distanceFromBottom = contentHeight - (currentScrollY + viewportHeight);
+    const isAtBottom = distanceFromBottom < Math.max(200, viewportHeight * 0.2);
+
+    // If the expected position is significantly different from current,
+    // it means the grid items physically shifted (e.g. from array trimming)
+    // IMPORTANT: If we are near the very bottom, DO NOT correct the scroll upwards.
+    // The user's intended action is to read the newly appended posts flowing downward.
+    if (!isAtBottom && Math.abs(expectedScrollY - currentScrollY) > 1) {
+      scrollViewRef.current.scrollTo({ y: expectedScrollY, animated: false });
+
+      // Update metrics synchronously to prevent fight with native scrolling momentum
+      lastScrollMetricsRef.current.scrollY = expectedScrollY;
+
+      // Update anchor with new values so we don't infinitely trigger
+      const nextAnchor = {
+        ...anchor,
+        scrollY: expectedScrollY,
+      };
+      anchorItemRef.current = nextAnchor;
+      prevAnchorItemRef.current = nextAnchor;
+    }
+  }, [gridItems]);
 
   const handleItemPress = useCallback(
     (item: GridItem) => {
@@ -628,8 +656,8 @@ export function FeedGridView({
 
   // Shared delayed click handler; per-item callbacks are supplied at call time
   const handleDelayedItemClick = useDelayedClick({
-    onSingleClick: () => {},
-    onDoubleClick: () => {},
+    onSingleClick: () => { },
+    onDoubleClick: () => { },
   });
 
   // Create click handler for an item
@@ -710,24 +738,24 @@ export function FeedGridView({
       const pos = itemPositionsRef.current.get(item.id);
       const positioningStyle = pos
         ? {
-            position: "absolute" as const,
-            top: pos.yPosition,
-            left: 0,
-            right: 0,
-          }
+          position: "absolute" as const,
+          top: pos.yPosition,
+          left: pos.xPosition,
+          right: undefined,
+        }
         : undefined;
       const sizeStyle = pos
         ? {
-            width: STYLE_CONSTANTS.FULL_WIDTH,
-            height: itemHeight,
-            maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
-          }
+          width: COLUMN_WIDTH,
+          height: itemHeight,
+          maxWidth: COLUMN_WIDTH,
+        }
         : {
-            width: STYLE_CONSTANTS.FULL_WIDTH,
-            height: itemHeight,
-            marginBottom: GRID_GAP,
-            maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
-          };
+          width: COLUMN_WIDTH,
+          height: itemHeight,
+          marginBottom: GRID_GAP,
+          maxWidth: COLUMN_WIDTH,
+        };
 
       // Render based on item type
       if (item.type === "media") {
@@ -962,6 +990,33 @@ export function FeedGridView({
       // Note: Compensation is now handled in useLayoutEffect (before paint),
       // so we no longer need to fight momentum here.
 
+      // Continuous anchor tracking (runs every scroll event to guarantee pixel-perfect restoration when bounds change)
+      let currentAnchorId: string | null = null;
+      let currentAnchorTop = Infinity;
+      const clampedScrollY = Math.max(0, Math.min(scrollY, contentHeight - viewportHeight));
+      const clampedViewportBottom = clampedScrollY + viewportHeight;
+
+      itemPositionsRef.current.forEach((pos, itemId) => {
+        const itemBottom = pos.yPosition + pos.height;
+        // Find highest item that intersects the clamped viewport
+        if (itemBottom >= clampedScrollY && pos.yPosition <= clampedViewportBottom) {
+          if (pos.yPosition < currentAnchorTop) {
+            currentAnchorTop = pos.yPosition;
+            currentAnchorId = itemId;
+          }
+        }
+      });
+
+      if (currentAnchorId) {
+        anchorItemRef.current = {
+          id: currentAnchorId,
+          offset: currentAnchorTop - scrollY,
+          inViewport: true,
+          scrollY,
+          timestamp: Date.now(),
+        };
+      }
+
       // 1. Handle visibility tracking for video autoplay
       const now = Date.now();
       const timeSinceLastUpdate = now - lastVisibilityUpdateRef.current;
@@ -978,113 +1033,7 @@ export function FeedGridView({
           setVisibleItems(newVisibleItems);
         }
 
-        // Track a visible anchor item to preserve scroll position on trim.
-        // Prefer an item actually inside the viewport; fall back to buffered items only if needed.
-        let anchorId: string | null = null;
-        let anchorTop = Infinity;
-        let inViewportFound = false;
-        let inViewportCount = 0;
-        const viewportBottom = scrollY + viewportHeight;
-        newVisibleItems.forEach((itemId) => {
-          const pos = itemPositionsRef.current.get(itemId);
-          if (!pos) return;
-          const inViewport =
-            pos.yPosition >= scrollY && pos.yPosition <= viewportBottom;
-          if (inViewport) {
-            inViewportCount += 1;
-          }
-          if (inViewport && (!inViewportFound || pos.yPosition < anchorTop)) {
-            anchorTop = pos.yPosition;
-            anchorId = itemId;
-            inViewportFound = true;
-          } else if (!inViewportFound && pos.yPosition < anchorTop) {
-            // Only use buffered items if no in-viewport items are available
-            anchorTop = pos.yPosition;
-            anchorId = itemId;
-          }
-        });
-        if (anchorId && Number.isFinite(anchorTop) && inViewportFound) {
-          prevAnchorItemRef.current = anchorItemRef.current;
-          anchorItemRef.current = {
-            id: anchorId,
-            offset: anchorTop - scrollY,
-            inViewport: true,
-            scrollY,
-            timestamp: now,
-            captureFirstId: posts[0]?.id,
-          };
-        }
-        // #region agent log
-        console.log("[dbg][H1] anchor updated", {
-          visibleCount: newVisibleItems.size,
-          anchorId,
-          anchorTop,
-          scrollY,
-          viewportHeight,
-          contentHeight,
-          gridItemsLen: gridItems.length,
-          inViewportFound,
-          inViewportCount,
-          anchorUpdated: Boolean(
-            anchorId && Number.isFinite(anchorTop) && inViewportFound,
-          ),
-        });
-        fetch(
-          "http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "FeedGridView.tsx:handleScroll-anchor",
-              message: "Anchor updated from visible items",
-              data: {
-                visibleCount: newVisibleItems.size,
-                anchorId,
-                anchorTop,
-                scrollY,
-                viewportHeight,
-                contentHeight,
-                gridItemsLen: gridItems.length,
-                inViewportFound,
-                inViewportCount,
-                anchorUpdated: Boolean(
-                  anchorId && Number.isFinite(anchorTop) && inViewportFound,
-                ),
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "pre-fix",
-              hypothesisId: "H1",
-            }),
-          },
-        ).catch(() => {});
-        // #endregion agent log
-        // #region agent log
-        fetch(
-          "http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "FeedGridView.tsx:handleScroll-anchor",
-              message: "Anchor updated from visible items",
-              data: {
-                visibleCount: newVisibleItems.size,
-                anchorId,
-                anchorTop,
-                scrollY,
-                viewportHeight,
-                contentHeight,
-                gridItemsLen: gridItems.length,
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "pre-fix",
-              hypothesisId: "H1",
-            }),
-          },
-        ).catch(() => {});
-        // #endregion agent log
+
 
         // 2. Track visible posts for proactive loading
         // Convert visible grid items to visible posts using pre-computed map
@@ -1101,7 +1050,7 @@ export function FeedGridView({
           now - lastProactiveLoadCheckRef.current;
         if (
           timeSinceLastProactiveCheck >=
-            UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
+          UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
           const visiblePostsChanged = !setsEqual(
@@ -1169,7 +1118,6 @@ export function FeedGridView({
       scrollEventThrottle={16}
       onContentSizeChange={(_, height) => {
         const previousHeight = lastScrollMetricsRef.current.contentHeight;
-        const scrollY = lastScrollMetricsRef.current.scrollY;
 
         // Get current viewport height (fallback to window height if not yet measured)
         const viewportHeight =
@@ -1183,33 +1131,6 @@ export function FeedGridView({
           viewportHeight, // Ensure viewport height is set
         };
 
-        // When content grows (load more appended at bottom), preserve scroll position.
-        // Some platforms reset or jump scroll when content re-layouts; restoring
-        // scrollY keeps the user viewing the same content so they can smoothly scroll
-        // down to the newly loaded posts.
-        if (height > previousHeight && previousHeight > 0 && scrollY > 0) {
-          const targetY = Math.min(scrollY, height - viewportHeight);
-          scrollViewRef.current?.scrollTo({
-            y: targetY,
-            animated: false,
-          });
-        }
-
-        if (height < previousHeight && previousHeight > 0) {
-          // #region agent log
-          console.log("[dbg][H10] content height shrank", {
-            previousHeight,
-            height,
-            scrollY,
-            viewportHeight,
-          });
-          // #endregion agent log
-        }
-
-        // IMPORTANT: Do NOT compensate scroll when content height shrinks (e.g. when
-        // posts are removed from the top). With absolute positioning, remaining grid
-        // cells keep their yPosition, so the content the user is viewing does not
-        // move. Reducing scrollY would move the viewport up incorrectly.
         maybeTriggerEndReached();
       }}
       refreshControl={
@@ -1218,22 +1139,14 @@ export function FeedGridView({
         ) : undefined
       }
     >
-      <View style={styles.masonryContainer}>
-        {/* Render each column (fixed height + relative so absolute-positioned items stay fixed) */}
-        {columns.map((columnItems, columnIndex) => (
-          <View
-            key={`column-${columnIndex}`}
-            style={[
-              styles.column,
-              {
-                position: "relative" as const,
-                height: maxColumnHeight,
-              },
-            ]}
-          >
-            {columnItems.map((item) => renderItem(item))}
-          </View>
-        ))}
+      <View
+        style={[
+          styles.masonryContainer,
+          { position: "relative" as const, height: maxColumnHeight },
+        ]}
+      >
+        {/* Render all flat grid items into a single container */}
+        {gridItems.map((item) => renderItem(item))}
       </View>
 
       {/* Loading footer */}

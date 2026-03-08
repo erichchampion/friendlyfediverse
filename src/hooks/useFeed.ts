@@ -24,7 +24,7 @@ type TrimDirection = "dropFromEnd" | "dropFromStart";
  * Smart trimming that maintains buffer around viewport
  * Only trims posts far from viewport, in chunks
  */
-const trimPostsToLimit = (
+export const trimPostsToLimit = (
   posts: Post[],
   direction: TrimDirection = "dropFromEnd",
   viewportPosition?: ViewportPosition,
@@ -51,50 +51,35 @@ const trimPostsToLimit = (
       return posts;
     }
 
-    // When direction is "dropFromStart" (loadMore / older posts), always trim from start.
-    // Stale viewport (e.g. grid with throttled updates) would otherwise pick the wrong end
-    // and trim the newly loaded posts instead of the far end.
     const distanceFromStart = firstVisibleIndex;
     const distanceFromEnd = posts.length - lastVisibleIndex;
 
-    let trimmed: Post[];
+    let trimmed = posts;
     let trimFromStart: boolean;
 
+    // Decide which side to trim based on explicit direction requested
+    // or by checking which side is furthest from the viewport.
     if (direction === "dropFromStart") {
-      // We appended older posts; always trim from start so we keep the new data.
       trimFromStart = true;
-      const amount = Math.min(overflow, chunkSize);
-      trimmed = posts.slice(amount);
     } else if (distanceFromStart < distanceFromEnd) {
-      // dropFromEnd: viewport closer to start, trim from end
-      trimFromStart = false;
-      const trimFromEnd = Math.min(
-        overflow,
-        Math.max(0, posts.length - bufferEnd),
-        chunkSize,
-      );
-      trimmed = posts.slice(0, posts.length - trimFromEnd);
+      trimFromStart = false; // dropFromEnd: viewport closer to start, trim from end
     } else {
-      // dropFromEnd: viewport closer to end, trim from start
-      trimFromStart = true;
-      const trimAmount = Math.min(
-        overflow,
-        Math.max(0, bufferStart),
-        chunkSize,
-      );
-      trimmed = trimAmount > 0 ? posts.slice(trimAmount) : posts;
+      trimFromStart = true; // dropFromEnd: viewport closer to end, trim from start
     }
 
-    // If still over threshold, trim more (same end as first trim)
-    if (trimmed.length > trimThreshold) {
-      const remainingOverflow = trimmed.length - bufferSize;
-      if (remainingOverflow > 0) {
-        const additionalTrim = Math.min(remainingOverflow, chunkSize);
-        if (trimFromStart) {
-          trimmed = trimmed.slice(additionalTrim);
-        } else {
-          trimmed = trimmed.slice(0, trimmed.length - additionalTrim);
-        }
+    // Apply trim while strictly maintaining the viewport buffer boundaries
+    if (trimFromStart) {
+      const maxAllowed = Math.max(0, bufferStart);
+      // Allow up to chunkSize * 2 (e.g. 40 posts) to be dropped in one cycle
+      const amount = Math.min(overflow, maxAllowed, chunkSize * 2);
+      if (amount > 0) {
+        trimmed = posts.slice(amount);
+      }
+    } else {
+      const maxAllowed = Math.max(0, posts.length - bufferEnd);
+      const amount = Math.min(overflow, maxAllowed, chunkSize * 2);
+      if (amount > 0) {
+        trimmed = posts.slice(0, posts.length - amount);
       }
     }
 
@@ -108,7 +93,7 @@ const trimPostsToLimit = (
       after: trimmed.length,
       trimFromStart,
     });
-    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useFeed.ts:trimPostsToLimit',message:'Trim applied',data:{direction,before:posts.length,after:trimmed.length,trimFromStart},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'useFeed.ts:trimPostsToLimit', message: 'Trim applied', data: { direction, before: posts.length, after: trimmed.length, trimFromStart }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'pre-fix', hypothesisId: 'H4' }) }).catch(() => { });
     // #endregion agent log
 
     return trimmed;
@@ -137,14 +122,14 @@ const trimPostsToLimit = (
 
 interface UseFeedOptions {
   feedType:
-    | "home"
-    | "local"
-    | "public"
-    | "favourites"
-    | "bookmarks"
-    | "list"
-    | "hashtag"
-    | "account";
+  | "home"
+  | "local"
+  | "public"
+  | "favourites"
+  | "bookmarks"
+  | "list"
+  | "hashtag"
+  | "account";
   feedId?: string; // For list, hashtag, or account feeds
   limit?: number;
   cacheKey?: string;
@@ -157,28 +142,28 @@ interface UseFeedOptions {
 type FeedAction =
   | { type: "LOAD_START" }
   | {
-      type: "LOAD_SUCCESS";
-      posts: Post[];
-      hasMore: boolean;
-      trimDirection?: TrimDirection;
-      anchorPostId?: string | null;
-    }
+    type: "LOAD_SUCCESS";
+    posts: Post[];
+    hasMore: boolean;
+    trimDirection?: TrimDirection;
+    anchorPostId?: string | null;
+  }
   | { type: "LOAD_ERROR"; error: string }
   | { type: "REFRESH_START" }
   | {
-      type: "REFRESH_SUCCESS";
-      posts: Post[];
-      hasMore: boolean;
-      trimDirection?: TrimDirection;
-    }
+    type: "REFRESH_SUCCESS";
+    posts: Post[];
+    hasMore: boolean;
+    trimDirection?: TrimDirection;
+  }
   | { type: "REFRESH_ERROR"; error: string }
   | { type: "LOAD_MORE_START" }
   | {
-      type: "LOAD_MORE_SUCCESS";
-      posts: Post[];
-      hasMore: boolean;
-      trimDirection?: TrimDirection;
-    }
+    type: "LOAD_MORE_SUCCESS";
+    posts: Post[];
+    hasMore: boolean;
+    trimDirection?: TrimDirection;
+  }
   | { type: "LOAD_MORE_ERROR"; error: string }
   | { type: "LOAD_NEWER_START" }
   | { type: "QUEUE_NEWER_POSTS"; newPosts: Post[] }
@@ -188,11 +173,11 @@ type FeedAction =
   | { type: "SET_POSTS"; posts: Post[]; pendingNewPosts?: Post[] }
   | { type: "LOAD_FROM_ANCHOR_START" }
   | {
-      type: "LOAD_FROM_ANCHOR_SUCCESS";
-      posts: Post[];
-      hasMore: boolean;
-      anchorPostId: string;
-    }
+    type: "LOAD_FROM_ANCHOR_SUCCESS";
+    posts: Post[];
+    hasMore: boolean;
+    anchorPostId: string;
+  }
   | { type: "LOAD_FROM_ANCHOR_ERROR"; error: string }
   | { type: "UPDATE_VIEWPORT_POSITION"; viewportPosition: ViewportPosition }
   | { type: "RESET" };
@@ -381,22 +366,22 @@ export function useFeed(options: UseFeedOptions) {
   // Iterator refs for bidirectional pagination
   const olderPaginatorRef = useRef<TimelinePaginator | null>(null);
   const newerPaginatorRef = useRef<TimelinePaginator | null>(null);
-  
+
   // Track the last maxId/sinceId used to create iterators to detect when we've truly reached the end
   // If a freshly created iterator with the same maxId/sinceId returns empty, we've reached the end
   const lastOlderMaxIdRef = useRef<string | null>(null);
   const lastNewerSinceIdRef = useRef<string | null>(null);
-  
+
   // Track the last successfully fetched post ID to use for iterator creation
   // This ensures we continue from where we actually fetched, not where the trimmed array ends
   const lastFetchedOlderPostIdRef = useRef<string | null>(null);
   const lastFetchedNewerPostIdRef = useRef<string | null>(null);
-  
+
   // Track the lastFetchedOlderPostIdRef value at the time we created the current iterator
   // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (meaning no new posts
   // were fetched), which indicates we've truly reached the end
   const lastFetchedOlderPostIdAtIteratorCreationRef = useRef<string | null>(null);
-  
+
   // Track consecutive empty results (when an iterator returns empty then done) to detect true exhaustion
   // After multiple consecutive empty results with the same maxId, we mark as exhausted
   const consecutiveEmptyResultsRef = useRef<number>(0);
@@ -408,7 +393,7 @@ export function useFeed(options: UseFeedOptions) {
     older: 0,
   });
   const PROACTIVE_LOAD_THROTTLE_MS = 2000; // Minimum 2 seconds between proactive loads
-  
+
   // Track when jumpToPost was called to prevent proactive loading immediately after
   const lastJumpToPostRef = useRef<number>(0);
   const PROACTIVE_LOAD_DELAY_AFTER_JUMP_MS = 1000; // Wait 1 second after jumpToPost before allowing proactive loads
@@ -936,23 +921,23 @@ export function useFeed(options: UseFeedOptions) {
         }
 
         const { client } = activeClient;
-        
+
         // Use the last successfully fetched post ID if available, otherwise use the oldest post
         // This ensures we continue from where we actually fetched, not from the trimmed array
         const maxId = lastFetchedOlderPostIdRef.current ?? state.posts[state.posts.length - 1].id;
-        
+
         // Track the lastFetchedOlderPostIdRef value at iterator creation time
         // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (no new posts fetched)
         const lastFetchedAtCreation = lastFetchedOlderPostIdRef.current;
-        
+
         // Store the previous value BEFORE updating the ref (for logging and comparison)
         const previousLastFetched = lastFetchedOlderPostIdAtIteratorCreationRef.current;
-        
+
         // Check if we're retrying with the same lastFetched value BEFORE updating the ref
         // This means no new posts were fetched since the last iterator was created
         const isRetryingWithSameLastFetched = previousLastFetched !== null &&
-                                              previousLastFetched === lastFetchedAtCreation;
-        
+          previousLastFetched === lastFetchedAtCreation;
+
         // If we're using the same maxId again, increment the consecutive empty results counter
         // Otherwise, reset it (we got new posts, so reset the counter)
         if (isRetryingWithSameLastFetched) {
@@ -960,10 +945,10 @@ export function useFeed(options: UseFeedOptions) {
         } else {
           consecutiveEmptyResultsRef.current = 0;
         }
-        
+
         // Update the ref AFTER the comparison
         lastFetchedOlderPostIdAtIteratorCreationRef.current = lastFetchedAtCreation;
-        
+
         // Update the maxId we're using for this iterator
         lastOlderMaxIdRef.current = maxId;
 
@@ -980,7 +965,7 @@ export function useFeed(options: UseFeedOptions) {
           "older",
           { maxId, limit: config.limit },
         );
-        
+
         // Store the retry flag for use when checking iterator results (across function calls)
         // This flag persists on the paginator object, so we can check it even after multiple next() calls
         (olderPaginatorRef.current as any)._isRetryingWithSameLastFetched = isRetryingWithSameLastFetched;
@@ -1071,15 +1056,15 @@ export function useFeed(options: UseFeedOptions) {
       const updatedPosts = [...state.posts, ...uniqueNewPosts];
       const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
 
-        // Track the last successfully fetched post ID (the oldest post from the fetched batch)
-        // This ensures we continue from where we actually fetched, even if posts get trimmed
-        if (uniqueNewPosts.length > 0) {
-          const oldestFetchedPost = uniqueNewPosts[uniqueNewPosts.length - 1];
-          lastFetchedOlderPostIdRef.current = oldestFetchedPost.id;
-          // Reset consecutive empty results counter since we successfully fetched posts
-          consecutiveEmptyResultsRef.current = 0;
-          console.log(`[useFeed] loadMore: Tracking last fetched older post ID: ${lastFetchedOlderPostIdRef.current}`);
-        }
+      // Track the last successfully fetched post ID (the oldest post from the fetched batch)
+      // This ensures we continue from where we actually fetched, even if posts get trimmed
+      if (uniqueNewPosts.length > 0) {
+        const oldestFetchedPost = uniqueNewPosts[uniqueNewPosts.length - 1];
+        lastFetchedOlderPostIdRef.current = oldestFetchedPost.id;
+        // Reset consecutive empty results counter since we successfully fetched posts
+        consecutiveEmptyResultsRef.current = 0;
+        console.log(`[useFeed] loadMore: Tracking last fetched older post ID: ${lastFetchedOlderPostIdRef.current}`);
+      }
 
       console.log(
         `[useFeed] loadMore RESULT: prevPosts=${state.posts.length}, fetched=${newPosts.length}, unique=${uniqueNewPosts.length}, total=${updatedPosts.length}`,
@@ -1229,7 +1214,7 @@ export function useFeed(options: UseFeedOptions) {
           "newer",
           { sinceId, limit: config.limit },
         );
-        
+
         // Track the sinceId we used to create this iterator
         lastNewerSinceIdRef.current = sinceId;
       }
@@ -1438,7 +1423,7 @@ export function useFeed(options: UseFeedOptions) {
         // from interfering with the initial display
         // The iterators will be re-initialized when loadMore/loadNewer are called
         resetIterators();
-        
+
         // Mark that we just jumped to a post to prevent immediate proactive loading
         lastJumpToPostRef.current = Date.now();
 
