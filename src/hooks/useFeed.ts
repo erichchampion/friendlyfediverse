@@ -228,11 +228,9 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "LOAD_MORE_SUCCESS":
       return {
         ...state,
-        posts: trimPostsToLimit(
-          action.posts,
-          action.trimDirection ?? "dropFromEnd",
-          state.viewportPosition,
-        ),
+        // Don't trim synchronously — let the new posts render first.
+        // Trimming is deferred to a subsequent idle frame via scheduleTrim().
+        posts: action.posts,
         pendingNewPosts: state.pendingNewPosts,
         isLoadingMore: false,
         hasMore: action.hasMore,
@@ -846,14 +844,9 @@ export function useFeed(options: UseFeedOptions) {
         const existingIds = new Set(state.posts.map((p) => p.id));
         const uniqueNew = olderPosts.filter((p) => !existingIds.has(p.id));
         const updatedPosts = [...state.posts, ...uniqueNew];
-        const boundedPosts = trimPostsToLimit(
-          updatedPosts,
-          "dropFromStart",
-          state.viewportPosition,
-        );
         if (updatedPosts.length > UI_CONFIG.TRIM_THRESHOLD) {
           console.log(
-            `[useFeed] loadMore CACHE: older=${olderPosts.length}, unique=${uniqueNew.length}, total=${updatedPosts.length}, trimmed=${boundedPosts.length}`,
+            `[useFeed] loadMore CACHE: older=${olderPosts.length}, unique=${uniqueNew.length}, total=${updatedPosts.length} (trim deferred)`,
           );
         }
         const exhausted = controller.isOlderServerExhausted();
@@ -867,8 +860,7 @@ export function useFeed(options: UseFeedOptions) {
                 : true; // Keep true when cache was empty but server not exhausted (e.g. prefetch failed)
         dispatch({
           type: "LOAD_MORE_SUCCESS",
-          posts: boundedPosts,
-          trimDirection: "dropFromStart",
+          posts: updatedPosts,
           hasMore,
         });
         // Background prefetch next page when we have posts and more may exist
@@ -1602,6 +1594,47 @@ export function useFeed(options: UseFeedOptions) {
     },
     [],
   );
+
+  // ── Deferred trimming ──────────────────────────────────────────────────
+  // Instead of trimming synchronously inside the reducer (which causes the
+  // grid to reflow in the same render frame as new posts), we schedule
+  // trimming after TRIM_IDLE_DELAY ms of scroll-idle. This lets the new
+  // posts render undisturbed, then trims from a quiet frame.
+  const trimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Only schedule trim if the post count exceeds the threshold
+    if (state.posts.length <= UI_CONFIG.TRIM_THRESHOLD) {
+      return;
+    }
+
+    // Clear any pending trim so each new load resets the idle clock
+    if (trimTimerRef.current) {
+      clearTimeout(trimTimerRef.current);
+    }
+
+    trimTimerRef.current = setTimeout(() => {
+      trimTimerRef.current = null;
+      const trimmed = trimPostsToLimit(
+        state.posts,
+        "dropFromStart",
+        state.viewportPosition,
+      );
+      if (trimmed.length < state.posts.length) {
+        console.log(
+          `[useFeed] DEFERRED TRIM: ${state.posts.length} → ${trimmed.length}`,
+        );
+        dispatch({ type: "SET_POSTS", posts: trimmed });
+      }
+    }, UI_CONFIG.TRIM_IDLE_DELAY);
+
+    return () => {
+      if (trimTimerRef.current) {
+        clearTimeout(trimTimerRef.current);
+        trimTimerRef.current = null;
+      }
+    };
+  }, [state.posts.length, state.viewportPosition]);
 
   return {
     ...state,
