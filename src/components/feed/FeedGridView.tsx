@@ -89,52 +89,18 @@ const COLUMN_WIDTH =
 // Uniform square cell size for predictable layout
 const getItemHeight = (_item: GridItem): number => COLUMN_WIDTH;
 
-// Distribute items for an absolutely positioned flat grid.
-// This ensures that items remain in the same parent container and are not destroyed
-// and recreated when array indices shift due to trimming.
-const distributeItemsToGrid = (
-  items: GridItem[],
-  columnCount: number,
-): {
-  flatItems: GridItem[];
-  itemPositions: Map<
-    string,
-    { xPosition: number; yPosition: number; height: number; columnIndex: number }
-  >;
-  maxColumnHeight: number;
-} => {
-  const itemPositions = new Map<
-    string,
-    { xPosition: number; yPosition: number; height: number; columnIndex: number }
-  >();
-  const cellSize = COLUMN_WIDTH + GRID_GAP;
-  const columnHeights = Array(columnCount).fill(0);
-
-  items.forEach((item, arrayIndex) => {
-    const columnIndex = arrayIndex % columnCount;
-    const rowIndex = Math.floor(arrayIndex / columnCount);
-
-    // Calculate precise X and Y coordinates for absolute positioning
-    const xPosition = GRID_GAP + columnIndex * (COLUMN_WIDTH + GRID_GAP);
-    const yPosition = rowIndex * cellSize + GRID_GAP;
-    const itemHeight = COLUMN_WIDTH;
-
-    itemPositions.set(item.id, {
-      xPosition,
-      yPosition,
-      height: itemHeight,
-      columnIndex,
-    });
-
-    // Track column heights to compute the final container height
-    const bottom = yPosition + itemHeight + GRID_GAP;
-    columnHeights[columnIndex] = Math.max(columnHeights[columnIndex], bottom);
-  });
-
-  const maxColumnHeight = columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
-
-  return { flatItems: items, itemPositions, maxColumnHeight };
+type ItemPosition = {
+  xPosition: number;
+  yPosition: number;
+  height: number;
+  columnIndex: number;
 };
+
+/**
+ * Calculate X position for a given column index.
+ */
+const xForColumn = (columnIndex: number): number =>
+  GRID_GAP + columnIndex * (COLUMN_WIDTH + GRID_GAP);
 
 export function FeedGridView({
   posts,
@@ -195,6 +161,12 @@ export function FeedGridView({
 
   // Track previous grid item IDs for cleanup
   const prevGridItemIdsRef = useRef<Set<string>>(new Set());
+
+  // Persistent layout cache – once an item is assigned a column, it keeps that
+  // column assignment forever. This prevents the entire grid from reflowing when
+  // items are trimmed from the start of the array (which may remove a number of
+  // GridItems not divisible by COLUMN_COUNT).
+  const layoutCacheRef = useRef<Map<string, ItemPosition>>(new Map());
 
   // Use centralized HTML utility
   const stripHtmlTags = stripHtml;
@@ -295,7 +267,7 @@ export function FeedGridView({
             media.type === "gifv"
           ) {
             items.push({
-              id: `${post.id}-media-${index}`, // Use post.id (unique feed item) and index instead of media.id
+              id: `${post.id}-media-${index}`,
               feedItemId: post.id,
               displayPostId: displayPost.id,
               type: "media",
@@ -309,7 +281,7 @@ export function FeedGridView({
       // Priority 2: Include posts with URL cards (that have images)
       else if (displayPost.card && displayPost.card.image) {
         items.push({
-          id: `${post.id}-card`, // Use post.id for uniqueness
+          id: `${post.id}-card`,
           feedItemId: post.id,
           displayPostId: displayPost.id,
           type: "card",
@@ -321,7 +293,7 @@ export function FeedGridView({
         const textContent = stripHtmlTags(displayPost.content);
         if (textContent.length > 0) {
           items.push({
-            id: `${post.id}-text`, // Use post.id for uniqueness
+            id: `${post.id}-text`,
             feedItemId: post.id,
             displayPostId: displayPost.id,
             type: "text",
@@ -331,17 +303,80 @@ export function FeedGridView({
       }
     });
 
-    // Distribute items for an absolutely positioned flat grid.
-    // This ensures that items remain in uniform positional states preventing DOM destruction.
-    const { flatItems, itemPositions, maxColumnHeight } =
-      distributeItemsToGrid(items, COLUMN_COUNT);
+    // ── Persistent layout cache ──────────────────────────────────────────
+    // Reuse cached column assignments for items that survived a trim so they
+    // stay in the exact same column.  Only newly-appended items get fresh
+    // positions assigned via shortest-column-first.
+    const cache = layoutCacheRef.current;
+    const currentIds = new Set(items.map((i) => i.id));
+
+    // 1. Prune cache entries for items that are no longer in the array
+    cache.forEach((_, id) => {
+      if (!currentIds.has(id)) cache.delete(id);
+    });
+
+    // 2. Rebase: shift all remaining cached positions up to eliminate
+    //    dead space left by trimmed items at the top.
+    if (cache.size > 0) {
+      let minY = Infinity;
+      cache.forEach((pos) => {
+        if (pos.yPosition < minY) minY = pos.yPosition;
+      });
+      // Keep the GRID_GAP top padding intact
+      const rebaseOffset = minY - GRID_GAP;
+      if (rebaseOffset > 0) {
+        cache.forEach((pos, id) => {
+          cache.set(id, { ...pos, yPosition: pos.yPosition - rebaseOffset });
+        });
+      }
+    }
+
+    // 3. Derive current column heights from surviving cached positions
+    const columnHeights = Array(COLUMN_COUNT).fill(GRID_GAP);
+    cache.forEach((pos) => {
+      const bottom = pos.yPosition + pos.height + GRID_GAP;
+      columnHeights[pos.columnIndex] = Math.max(
+        columnHeights[pos.columnIndex],
+        bottom,
+      );
+    });
+
+    // 4. Assign positions to un-cached (new) items using shortest-column-first
+    const itemPositions = new Map<string, ItemPosition>();
+    items.forEach((item) => {
+      const cached = cache.get(item.id);
+      if (cached) {
+        // Reuse cached position – column assignment is permanent
+        itemPositions.set(item.id, cached);
+      } else {
+        // Find shortest column
+        let shortestCol = 0;
+        for (let i = 1; i < COLUMN_COUNT; i++) {
+          if (columnHeights[i] < columnHeights[shortestCol]) shortestCol = i;
+        }
+        const pos: ItemPosition = {
+          xPosition: xForColumn(shortestCol),
+          yPosition: columnHeights[shortestCol],
+          height: COLUMN_WIDTH,
+          columnIndex: shortestCol,
+        };
+        itemPositions.set(item.id, pos);
+        cache.set(item.id, pos);
+        columnHeights[shortestCol] =
+          pos.yPosition + COLUMN_WIDTH + GRID_GAP;
+      }
+    });
+
+    // 5. Compute container height
+    const maxHeight =
+      columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
 
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
 
     return {
-      gridItems: flatItems,
-      maxColumnHeight,
+      gridItems: items,
+      maxColumnHeight: maxHeight,
     };
   }, [posts]);
 
