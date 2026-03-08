@@ -56,7 +56,7 @@ export const UI_CONFIG = {
   POST_BUFFER_SIZE: 350, // Maximum posts to keep in buffer
   TRIM_THRESHOLD: 400, // Start trimming when this many posts (50-post hysteresis above buffer size)
   TRIM_CHUNK_SIZE: 20, // Trim this many posts at a time
-  TRIM_IDLE_DELAY: 200, // ms - delay before trimming to avoid interrupting scroll momentum
+  TRIM_IDLE_DELAY: 1500, // ms - wait for scroll deceleration to finish before trimming
   VIEWPORT_BUFFER_POSTS: 150, // Keep this many posts on each side of viewport
   // Grid view scroll positioning
   GRID_SCROLL_PADDING_MAX: 50, // Maximum padding offset in pixels for grid scroll positioning
