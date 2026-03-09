@@ -50,6 +50,7 @@ interface FeedGridViewProps {
   }) => void;
   onItemOffset?: (postId: string, offsetY: number) => void; // report item top offset
   onScrollComplete?: () => void; // Called when scroll restoration completes
+  containerWidth: number; // exact width of the container
 }
 
 type GridItemType = "media" | "card" | "text";
@@ -80,14 +81,8 @@ interface TextGridItem extends BaseGridItem {
 
 type GridItem = MediaGridItem | CardGridItem | TextGridItem;
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const COLUMN_COUNT = 3;
 const GRID_GAP = 2;
-const COLUMN_WIDTH =
-  (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
-
-// Uniform square cell size for predictable layout
-const getItemHeight = (_item: GridItem): number => COLUMN_WIDTH;
 
 type ItemPosition = {
   xPosition: number;
@@ -95,12 +90,6 @@ type ItemPosition = {
   height: number;
   columnIndex: number;
 };
-
-/**
- * Calculate X position for a given column index.
- */
-const xForColumn = (columnIndex: number): number =>
-  GRID_GAP + columnIndex * (COLUMN_WIDTH + GRID_GAP);
 
 export function FeedGridView({
   posts,
@@ -116,8 +105,24 @@ export function FeedGridView({
   onViewableItemsChanged,
   onItemOffset,
   onScrollComplete,
+  containerWidth,
 }: FeedGridViewProps) {
   const { colors, isDark } = useTheme();
+
+  const actualContainerWidth = containerWidth;
+
+  const columnWidth = useMemo(() =>
+    (actualContainerWidth - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT,
+    [actualContainerWidth]);
+
+  const xForColumn = useCallback((columnIndex: number): number =>
+    GRID_GAP + columnIndex * (columnWidth + GRID_GAP),
+    [columnWidth]);
+
+  const getItemHeight = useCallback((_item: GridItem): number => columnWidth, [columnWidth]);
+
+  const prevColumnWidthRef = useRef<number>(columnWidth);
+
   const [visibleItems, setVisibleItems] = useState<Set<string>>(new Set());
   const visibleItemsRef = useRef<Set<string>>(new Set());
   const scrollViewRef = useRef<ScrollView>(null);
@@ -308,6 +313,13 @@ export function FeedGridView({
     // stay in the exact same column.  Only newly-appended items get fresh
     // positions assigned via shortest-column-first.
     const cache = layoutCacheRef.current;
+
+    // Clear cache if column width changed (e.g., orientation or layout switch)
+    if (prevColumnWidthRef.current !== columnWidth) {
+      cache.clear();
+      prevColumnWidthRef.current = columnWidth;
+    }
+
     const currentIds = new Set(items.map((i) => i.id));
 
     // 1. Prune cache entries for items that are no longer in the array
@@ -357,12 +369,12 @@ export function FeedGridView({
         const pos: ItemPosition = {
           xPosition: xForColumn(shortestCol),
           yPosition: columnHeights[shortestCol],
-          height: COLUMN_WIDTH,
+          height: columnWidth,
           columnIndex: shortestCol,
         };
         itemPositions.set(item.id, pos);
         cache.set(item.id, pos);
-        columnHeights[shortestCol] = pos.yPosition + COLUMN_WIDTH + GRID_GAP;
+        columnHeights[shortestCol] = pos.yPosition + columnWidth + GRID_GAP;
       }
     });
 
@@ -376,7 +388,7 @@ export function FeedGridView({
       gridItems: items,
       maxColumnHeight: maxHeight,
     };
-  }, [posts]);
+  }, [posts, columnWidth, xForColumn]);
 
   // Clean up stale actual positions when items are removed
   useEffect(() => {
@@ -690,8 +702,8 @@ export function FeedGridView({
 
   // Shared delayed click handler; per-item callbacks are supplied at call time
   const handleDelayedItemClick = useDelayedClick({
-    onSingleClick: () => {},
-    onDoubleClick: () => {},
+    onSingleClick: () => { },
+    onDoubleClick: () => { },
   });
 
   // Create click handler for an item
@@ -772,24 +784,24 @@ export function FeedGridView({
       const pos = itemPositionsRef.current.get(item.id);
       const positioningStyle = pos
         ? {
-            position: "absolute" as const,
-            top: pos.yPosition,
-            left: pos.xPosition,
-            right: undefined,
-          }
+          position: "absolute" as const,
+          top: pos.yPosition,
+          left: pos.xPosition,
+          right: undefined,
+        }
         : undefined;
       const sizeStyle = pos
         ? {
-            width: COLUMN_WIDTH,
-            height: itemHeight,
-            maxWidth: COLUMN_WIDTH,
-          }
+          width: columnWidth,
+          height: itemHeight,
+          maxWidth: columnWidth,
+        }
         : {
-            width: COLUMN_WIDTH,
-            height: itemHeight,
-            marginBottom: GRID_GAP,
-            maxWidth: COLUMN_WIDTH,
-          };
+          width: columnWidth,
+          height: itemHeight,
+          marginBottom: GRID_GAP,
+          maxWidth: columnWidth,
+        };
 
       // Render based on item type
       if (item.type === "media") {
@@ -944,7 +956,7 @@ export function FeedGridView({
                 styles.textPreview,
                 { color: isDark ? colors.text : "#000000" },
               ]}
-              numberOfLines={Math.floor((COLUMN_WIDTH - 16) / 16)}
+              numberOfLines={Math.floor((columnWidth - 16) / 16)}
               ellipsizeMode="tail"
               adjustsFontSizeToFit={false}
             >
@@ -1088,7 +1100,7 @@ export function FeedGridView({
           now - lastProactiveLoadCheckRef.current;
         if (
           timeSinceLastProactiveCheck >=
-            UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
+          UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
           const visiblePostsChanged = !setsEqual(

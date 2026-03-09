@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   InteractionManager,
   Dimensions,
+  useWindowDimensions,
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
@@ -87,6 +88,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const { colors } = useTheme();
   const { instance } = useAuth();
 
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width >= 768;
+
   const { feedType, feedId } = parseFeedParams(routeId || "public");
 
   // View mode state (list or grid) - persisted across navigation
@@ -96,8 +100,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Track view transition state (for smooth transitions when switching views)
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // Track current visible post ID for scroll position restoration
+  // Track current visible post  // Track scroll target for view switching and syncing
   const currentPostIdRef = useRef<string | null>(null);
+  const [syncTrigger, setSyncTrigger] = useState(0);
   const flashListRef = useRef<FlashListRef<FeedItem>>(null);
 
   // Simple debounce for pagination
@@ -729,12 +734,46 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     setIsGridView(!isGridView);
   }, [isGridView, displayPosts]);
 
+  // Handle sync list to grid (side-by-side)
+  const handleGridSync = useCallback(() => {
+    const visiblePostId =
+      firstVisibleGridPostIdRef.current ||
+      (displayPosts.length > 0 ? displayPosts[0].id : null);
+    if (visiblePostId) {
+      // Find the index of this post in feedItems
+      const index = feedItems.findIndex(
+        (item) =>
+          item.id === `${visiblePostId}-header` ||
+          item.id === `${visiblePostId}-content` ||
+          item.post.id === visiblePostId
+      );
+      if (index >= 0) {
+        flashListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0,
+        });
+      }
+    }
+  }, [displayPosts, feedItems]);
+
+  // Handle sync grid to list (side-by-side)
+  const handleListSync = useCallback(() => {
+    const visiblePostId =
+      firstVisiblePostIdRef.current ||
+      (displayPosts.length > 0 ? displayPosts[0].id : null);
+    if (visiblePostId) {
+      currentPostIdRef.current = visiblePostId;
+      setSyncTrigger((prev) => prev + 1); // trigger re-render to pass new currentPostIdRef
+    }
+  }, [displayPosts]);
+
   // Clear scroll target after grid view scroll restoration completes
   const handleGridScrollComplete = useCallback(() => {
     currentPostIdRef.current = null;
   }, []);
 
-  // Handle reload
+  // Handle reload (shared)
   const handleReload = useCallback(async () => {
     if (!isRefreshing && !isLoading) {
       await reload();
@@ -754,6 +793,30 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       }
     }
   }, [isRefreshing, isLoading, reload, isGridView, displayPosts]);
+
+  // Handle reload (Grid column specific)
+  const handleGridReload = useCallback(async () => {
+    if (!isRefreshing && !isLoading) {
+      await reload();
+      if (displayPosts.length > 0) {
+        setTimeout(() => {
+          setGridScrollSignal((prev) => prev + 1);
+        }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+      }
+    }
+  }, [isRefreshing, isLoading, reload, displayPosts]);
+
+  // Handle reload (List column specific)
+  const handleListReload = useCallback(async () => {
+    if (!isRefreshing && !isLoading) {
+      await reload();
+      if (displayPosts.length > 0) {
+        setTimeout(() => {
+          flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+      }
+    }
+  }, [isRefreshing, isLoading, reload, displayPosts]);
 
   // Wrap the feed's viewable items callback to track first visible post in grid view
   const handleGridViewableItemsChanged = useCallback(
@@ -806,11 +869,29 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Handle media press in grid view
   const handleMediaPress = useCallback(
     async (postId: string, mediaIndex: number) => {
-      // Switch to list view
-      setIsGridView(false);
-
       // Save the target post ID for scroll restoration
       currentPostIdRef.current = postId;
+
+      if (isLargeScreen) {
+        // In side-by-side mode, both views are visible. We just need to
+        // scroll the list view to the clicked post.
+        const index = feedItems.findIndex(
+          (item) =>
+            item.id === `${postId}-header` ||
+            item.id === `${postId}-content` ||
+            item.post.id === postId
+        );
+        if (index >= 0) {
+          flashListRef.current?.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0,
+          });
+        }
+      } else {
+        // On narrow screens, switch to list view explicitly
+        setIsGridView(false);
+      }
 
       // Check if post exists in current feed
       const postExists = posts.some(
@@ -831,7 +912,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
     },
-    [posts, jumpToPost],
+    [isLargeScreen, feedItems, posts, jumpToPost],
   );
 
   // Handle toggle favorite for grid view double-click
@@ -982,7 +1063,76 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         </TouchableOpacity>
       )}
 
-      {isGridView ? (
+      {isLargeScreen ? (
+        <View style={styles.sideBySideContainer}>
+          <View style={styles.sideColumn}>
+            <FeedGridView
+              posts={displayPosts}
+              onMediaPress={handleMediaPress}
+              onToggleFavorite={handleToggleFavorite}
+              onEndReached={handleEndReached}
+              hasMore={hasMore}
+              onRefresh={refresh}
+              isRefreshing={isRefreshing}
+              isLoadingMore={isLoadingMore}
+              scrollToPostId={currentPostIdRef.current}
+              onViewableItemsChanged={handleGridViewableItemsChanged}
+              scrollToTopSignal={gridScrollSignal}
+              onScrollComplete={handleGridScrollComplete}
+              containerWidth={Math.floor((width - 1) / 2)}
+            />
+            {/* Grid column buttons */}
+            <FloatingButtons
+              onGridToggle={handleGridSync}
+              onReload={handleGridReload}
+              isGridView={true} // Displays a list icon (sync to list)
+              isLoading={isRefreshing || isLoading}
+            />
+          </View>
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.sideColumn}>
+            <FlashList<FeedItem>
+              key={`feed-list-${feedType}-${feedId || "default"}`}
+              ref={flashListRef}
+              data={feedItems}
+              renderItem={renderFlashListItem}
+              keyExtractor={(item) => item.id}
+              // Sticky headers - makes post headers stick to top while scrolling
+              stickyHeaderIndices={stickyIndices}
+              // Scroll behavior
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              // Visibility tracking for video autoplay
+              onViewableItemsChanged={handleFlashListViewableItemsChanged}
+              viewabilityConfig={{
+                itemVisiblePercentThreshold: 50, // Item must be 50% visible
+                minimumViewTime: 100, // Must be visible for 100ms
+              }}
+              // Refresh
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={refresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
+              // Footer and empty state
+              ListFooterComponent={renderFooter}
+              ListEmptyComponent={renderEmpty}
+              // Performance
+              drawDistance={500}
+            />
+            {/* List column buttons */}
+            <FloatingButtons
+              onGridToggle={handleListSync}
+              onReload={handleListReload}
+              isGridView={false} // Displays a grid icon (sync to grid)
+              isLoading={isRefreshing || isLoading}
+            />
+          </View>
+        </View>
+      ) : isGridView ? (
         <FeedGridView
           posts={displayPosts}
           onMediaPress={handleMediaPress}
@@ -996,6 +1146,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           onViewableItemsChanged={handleGridViewableItemsChanged}
           scrollToTopSignal={gridScrollSignal}
           onScrollComplete={handleGridScrollComplete}
+          containerWidth={width}
         />
       ) : !isTransitioning ? (
         <FlashList<FeedItem>
@@ -1032,13 +1183,15 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         />
       ) : null}
 
-      {/* Floating action buttons */}
-      <FloatingButtons
-        onGridToggle={handleViewToggle}
-        onReload={handleReload}
-        isGridView={isGridView}
-        isLoading={isRefreshing || isLoading}
-      />
+      {/* Floating action buttons (Narrow screen only) */}
+      {!isLargeScreen && (
+        <FloatingButtons
+          onGridToggle={handleViewToggle}
+          onReload={handleReload}
+          isGridView={isGridView}
+          isLoading={isRefreshing || isLoading}
+        />
+      )}
 
       {/* Transition loading overlay when switching from grid to list view */}
       {isTransitioning && (
@@ -1066,6 +1219,16 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  sideBySideContainer: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  sideColumn: {
+    flex: 1,
+  },
+  divider: {
+    width: 1,
   },
   loadingContainer: {
     flex: 1,
