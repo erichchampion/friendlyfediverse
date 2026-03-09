@@ -407,29 +407,10 @@ describe("FeedGridView - Simplified Actions", () => {
       // (it's handled by the grid item's TouchableOpacity)
       const mediaGrid = getByTestId("media-grid-media-post-1");
       expect(mediaGrid).toBeTruthy();
-      
+
       // The MediaGrid component should not receive onMediaPress in grid mode
       // This is verified by the fact that clicking the grid item switches views
       // rather than opening the image viewer
     });
   });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

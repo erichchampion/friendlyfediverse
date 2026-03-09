@@ -44,7 +44,7 @@ export default function InstanceSelectorScreen() {
     // Check if login just completed (isLoading went from true to false)
     const loginJustCompleted =
       wasLoadingRef.current && !isLoading && isAuthenticated;
-    
+
     // Update ref for next check (must be after the check above)
     wasLoadingRef.current = isLoading;
 
@@ -58,20 +58,24 @@ export default function InstanceSelectorScreen() {
     if (!searchQuery.trim()) {
       return false;
     }
-    
+
     // Remove protocol and trailing slash if present
-    const cleanQuery = searchQuery.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
-    
+    const cleanQuery = searchQuery
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+
     // Must have at least one character
     if (cleanQuery.length === 0) {
       return false;
     }
-    
+
     // Check if it exactly matches any instance domain in the list
     const matchesAnyInstance = POPULAR_INSTANCES.some(
-      (i) => i.domain.toLowerCase() === cleanQuery
+      (i) => i.domain.toLowerCase() === cleanQuery,
     );
-    
+
     // If it doesn't exactly match, treat it as a custom hostname
     // The validation will happen when the user tries to connect
     return !matchesAnyInstance;
@@ -102,7 +106,9 @@ export default function InstanceSelectorScreen() {
 
   const handleSelectInstance = async (domain: string) => {
     console.info(`handleSelectInstance called with: ${domain}`);
-    console.info(`Current state: isLoading=${isLoading}, validatingInstance=${validatingInstance}`);
+    console.info(
+      `Current state: isLoading=${isLoading}, validatingInstance=${validatingInstance}`,
+    );
 
     try {
       setValidatingInstance(domain);
@@ -115,7 +121,9 @@ export default function InstanceSelectorScreen() {
       console.info(`Validation result for ${domain}: ${isValid}`);
       if (!isValid) {
         if (Platform.OS === "web") {
-          window.alert("This does not appear to be a valid Mastodon-compatible instance.");
+          window.alert(
+            "This does not appear to be a valid Mastodon-compatible instance.",
+          );
         } else {
           Alert.alert(
             "Invalid Instance",
@@ -128,7 +136,10 @@ export default function InstanceSelectorScreen() {
       // Get instance info
       console.info(`Getting instance info for ${domain}...`);
       const info = await getInstanceInfo(normalizedUrl);
-      console.info(`Instance info for ${domain}:`, info ? `registrations=${info.registrations}` : 'null');
+      console.info(
+        `Instance info for ${domain}:`,
+        info ? `registrations=${info.registrations}` : "null",
+      );
       if (info && !info.registrations) {
         // Stop the validating state while awaiting user choice
         setValidatingInstance(null);
@@ -136,7 +147,7 @@ export default function InstanceSelectorScreen() {
         // Handle alert differently on web vs native
         if (Platform.OS === "web") {
           const tryAnyway = window.confirm(
-            "This instance is not currently accepting new registrations.\n\nClick OK to try anyway, or Cancel to choose another server."
+            "This instance is not currently accepting new registrations.\n\nClick OK to try anyway, or Cancel to choose another server.",
           );
           if (tryAnyway) {
             proceedWithLogin(normalizedUrl);
@@ -166,7 +177,10 @@ export default function InstanceSelectorScreen() {
       if (Platform.OS === "web") {
         window.alert("Failed to connect to instance. Please try again.");
       } else {
-        Alert.alert("Error", "Failed to connect to instance. Please try again.");
+        Alert.alert(
+          "Error",
+          "Failed to connect to instance. Please try again.",
+        );
       }
     } finally {
       setValidatingInstance(null);
@@ -231,7 +245,9 @@ export default function InstanceSelectorScreen() {
 
     // Debug log for button state
     if (item.domain === "pixelfed.art") {
-      console.info(`renderInstance pixelfed.art: isLoading=${isLoading}, isValidating=${isValidating}, disabled=${isDisabled}`);
+      console.info(
+        `renderInstance pixelfed.art: isLoading=${isLoading}, isValidating=${isValidating}, disabled=${isDisabled}`,
+      );
     }
 
     return (
@@ -332,51 +348,66 @@ export default function InstanceSelectorScreen() {
         keyExtractor={(item) => item.domain}
         contentContainerStyle={styles.instancesList}
         ListHeaderComponent={
-          isCustomHostname ? (() => {
-            const cleanHostname = searchQuery.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-            const isValidating = validatingInstance === cleanHostname;
-            return (
-              <TouchableOpacity
-                disabled={isLoading || isValidating}
-                onPress={() => {
-                  handleSelectInstance(cleanHostname);
-                }}
-              >
-                <Card style={[
-                  styles.instanceCard,
-                  styles.customInstanceCard,
-                  { borderColor: colors.border }
-                ]}>
-                  <View style={styles.instanceHeader}>
-                    <View style={styles.instanceInfo}>
-                      <Text style={[styles.instanceName, { color: colors.text }]}>
-                        Connect to Custom Server
-                      </Text>
-                      <Text
-                        style={[styles.instanceDomain, { color: colors.primary }]}
-                      >
-                        {cleanHostname}
-                      </Text>
-                    </View>
-                    {isValidating && (
-                      <ActivityIndicator
-                        color={colors.primary}
-                        testID="custom-instance-loading"
-                      />
-                    )}
-                  </View>
-                  <Text
-                    style={[
-                      styles.instanceDescription,
-                      { color: colors.textSecondary },
-                    ]}
+          isCustomHostname
+            ? (() => {
+                const cleanHostname = searchQuery
+                  .trim()
+                  .replace(/^https?:\/\//, "")
+                  .replace(/\/$/, "");
+                const isValidating = validatingInstance === cleanHostname;
+                return (
+                  <TouchableOpacity
+                    disabled={isLoading || isValidating}
+                    onPress={() => {
+                      handleSelectInstance(cleanHostname);
+                    }}
                   >
-                    Connect to this server if it's not in the list above
-                  </Text>
-                </Card>
-              </TouchableOpacity>
-            );
-          })() : null
+                    <Card
+                      style={[
+                        styles.instanceCard,
+                        styles.customInstanceCard,
+                        { borderColor: colors.border },
+                      ]}
+                    >
+                      <View style={styles.instanceHeader}>
+                        <View style={styles.instanceInfo}>
+                          <Text
+                            style={[
+                              styles.instanceName,
+                              { color: colors.text },
+                            ]}
+                          >
+                            Connect to Custom Server
+                          </Text>
+                          <Text
+                            style={[
+                              styles.instanceDomain,
+                              { color: colors.primary },
+                            ]}
+                          >
+                            {cleanHostname}
+                          </Text>
+                        </View>
+                        {isValidating && (
+                          <ActivityIndicator
+                            color={colors.primary}
+                            testID="custom-instance-loading"
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.instanceDescription,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Connect to this server if it's not in the list above
+                      </Text>
+                    </Card>
+                  </TouchableOpacity>
+                );
+              })()
+            : null
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>

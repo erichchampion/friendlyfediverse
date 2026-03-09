@@ -23,7 +23,10 @@ export interface LinkCardProps {
   onPress?: () => void;
 }
 
-export const LinkCard = memo<LinkCardProps>(function LinkCard({ card, onPress }) {
+export const LinkCard = memo<LinkCardProps>(function LinkCard({
+  card,
+  onPress,
+}) {
   const { colors } = useTheme();
 
   const handlePress = useCallback(() => {

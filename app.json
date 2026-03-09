@@ -24,9 +24,7 @@
         "usesNonExemptEncryption": false
       }
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "web": {
       "favicon": "./assets/favicon.png",
       "output": "static",
@@ -49,7 +47,7 @@
             "bitcode": false,
             "debugInformationFormat": "dwarf-with-dsym",
             "stripDebugSymbolsDuringCopy": false,
-            "useFrameworks": "static"  // keep if you already need frameworks; otherwise omit
+            "useFrameworks": "static" // keep if you already need frameworks; otherwise omit
           }
         }
       ],
@@ -68,9 +66,7 @@
       }
     },
     "android": {
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ],
+      "permissions": ["android.permission.RECORD_AUDIO"],
       "package": "com.friendlyfediverse"
     },
     "owner": "friendlyfediverse"

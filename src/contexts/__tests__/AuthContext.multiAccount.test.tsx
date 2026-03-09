@@ -167,7 +167,9 @@ describe("AuthContext - Multi-Account Same-Server", () => {
       });
 
       // Set up existing account
-      mockStorageService.getAccountsForServer.mockResolvedValue([mockInstance1]);
+      mockStorageService.getAccountsForServer.mockResolvedValue([
+        mockInstance1,
+      ]);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -214,7 +216,9 @@ describe("AuthContext - Multi-Account Same-Server", () => {
       });
 
       // Set up existing account on server
-      mockStorageService.getAccountsForServer.mockResolvedValue([mockInstance1]);
+      mockStorageService.getAccountsForServer.mockResolvedValue([
+        mockInstance1,
+      ]);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 

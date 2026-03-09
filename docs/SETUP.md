@@ -22,6 +22,7 @@ Then press `i` to open iOS simulator.
 ### Prerequisites
 
 1. **Node.js 20.x LTS**
+
    ```bash
    node --version  # Should be v20.x
    ```
@@ -45,26 +46,31 @@ Then press `i` to open iOS simulator.
 ### First-Time Setup
 
 1. **Clone and navigate:**
+
    ```bash
    cd ios/mastodon-rn
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Verify TypeScript:**
+
    ```bash
    npm run type-check
    ```
 
 4. **Run linter:**
+
    ```bash
    npm run lint
    ```
 
 5. **Start development server:**
+
    ```bash
    npm start
    ```
@@ -76,6 +82,7 @@ Then press `i` to open iOS simulator.
 ### Development Workflow
 
 1. **Start server:**
+
    ```bash
    npm start
    ```
@@ -124,20 +131,26 @@ npm run type-check
 ### Troubleshooting
 
 #### Problem: Metro bundler won't start
+
 **Solution:**
+
 ```bash
 npx expo start -c  # Clear cache
 ```
 
 #### Problem: Dependencies out of sync
+
 **Solution:**
+
 ```bash
 rm -rf node_modules package-lock.json
 npm install
 ```
 
 #### Problem: iOS build fails
+
 **Solution:**
+
 ```bash
 cd ios
 rm -rf Pods Podfile.lock
@@ -147,8 +160,10 @@ npx expo prebuild --clean
 ```
 
 #### Problem: Can't find module
+
 **Solution:**
 Check that imports use the correct aliases:
+
 - `@/...` for `src/...`
 - `@components/...` for `src/components/...`
 - `@lib/...` for `src/lib/...`

@@ -54,7 +54,10 @@ class RelationshipBatcher {
   /**
    * Create and track a timer
    */
-  private createTimer(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+  private createTimer(
+    callback: () => void,
+    delay: number,
+  ): ReturnType<typeof setTimeout> {
     const timerId = setTimeout(callback, delay);
     // Use .unref() to prevent timers from keeping the process alive
     // This is especially important in test environments
@@ -137,12 +140,15 @@ class RelationshipBatcher {
     if (now - this.lastBatchTime < this.MAX_BATCH_INTERVAL) {
       // Reschedule for later
       this.clearBatchTimeout();
-      this.batchTimeout = this.createTimer(() => {
-        this.batchTimeout = null;
-        this.processBatch(client).catch((err) => {
-          console.error("[RelationshipBatcher] Error processing batch:", err);
-        });
-      }, this.MAX_BATCH_INTERVAL - (now - this.lastBatchTime));
+      this.batchTimeout = this.createTimer(
+        () => {
+          this.batchTimeout = null;
+          this.processBatch(client).catch((err) => {
+            console.error("[RelationshipBatcher] Error processing batch:", err);
+          });
+        },
+        this.MAX_BATCH_INTERVAL - (now - this.lastBatchTime),
+      );
       return;
     }
 

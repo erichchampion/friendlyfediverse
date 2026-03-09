@@ -110,7 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (existingAccount) {
         // Account exists - refresh token and switch to it
-        console.info(`Account @${account.username} already exists. Refreshing token.`);
+        console.info(
+          `Account @${account.username} already exists. Refreshing token.`,
+        );
         const enhancedAuthData: AuthData = {
           ...authData,
           accountId: account.id,

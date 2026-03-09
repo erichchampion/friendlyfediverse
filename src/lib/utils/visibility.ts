@@ -27,5 +27,3 @@ export const computeVisibleIds = (
 
   return visibleIds;
 };
-
-

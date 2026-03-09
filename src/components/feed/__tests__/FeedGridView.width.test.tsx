@@ -111,7 +111,7 @@ describe("FeedGridView - Width Calculation", () => {
     // Mock Dimensions.get to return our test width
     jest.spyOn(Dimensions, "get").mockReturnValue({
       width: SCREEN_WIDTH,
-      height: 800
+      height: 800,
     });
 
     const posts = [createImagePost("post-1")];
@@ -125,12 +125,13 @@ describe("FeedGridView - Width Calculation", () => {
     expect(gridItems.length).toBeGreaterThan(0);
 
     // Find the grid item (not the sensitive overlay button)
-    const gridItem = gridItems.find(
-      (item: any) =>
-        item.props.style &&
-        Array.isArray(item.props.style) &&
-        item.props.style.some((s: any) => s && s.width !== undefined)
-    ) || gridItems[0];
+    const gridItem =
+      gridItems.find(
+        (item: any) =>
+          item.props.style &&
+          Array.isArray(item.props.style) &&
+          item.props.style.some((s: any) => s && s.width !== undefined),
+      ) || gridItems[0];
 
     expect(gridItem).toBeDefined();
 
@@ -155,12 +156,13 @@ describe("FeedGridView - Width Calculation", () => {
 
     // Expected calculation: (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
     // = (1024 - 2 * 4) / 3 = (1024 - 8) / 3 = 1016 / 3 = 338.666...
-    const expectedColumnWidth = (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
+    const expectedColumnWidth =
+      (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
 
     // Mock Dimensions.get to return our test width
     jest.spyOn(Dimensions, "get").mockReturnValue({
       width: SCREEN_WIDTH,
-      height: 800
+      height: 800,
     });
 
     const posts = [createImagePost("post-1")];
@@ -173,22 +175,3 @@ describe("FeedGridView - Width Calculation", () => {
     Dimensions.get.mockRestore();
   });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

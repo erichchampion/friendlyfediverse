@@ -8,11 +8,7 @@ const layoutMap = (...entries: [string, number, number][]) => {
 
 describe("computeVisibleIds", () => {
   it("returns items intersecting the viewport", () => {
-    const layouts = layoutMap(
-      ["a", 0, 100],
-      ["b", 120, 150],
-      ["c", 400, 50],
-    );
+    const layouts = layoutMap(["a", 0, 100], ["b", 120, 150], ["c", 400, 50]);
 
     const visible = computeVisibleIds(layouts, 0, 250);
     expect(Array.from(visible)).toEqual(expect.arrayContaining(["a", "b"]));
@@ -31,5 +27,3 @@ describe("computeVisibleIds", () => {
     expect(visible.size).toBe(0);
   });
 });
-
-

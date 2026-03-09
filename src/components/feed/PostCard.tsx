@@ -266,10 +266,7 @@ export const PostCard = memo<PostCardProps>(function PostCard({
 
         {/* Media attachments */}
         {displayPost.mediaAttachments.length > 0 && (
-          <View
-            testID="media-container"
-            style={styles.mediaContainer}
-          >
+          <View testID="media-container" style={styles.mediaContainer}>
             <MediaGrid
               media={displayPost.mediaAttachments}
               sensitive={displayPost.sensitive}

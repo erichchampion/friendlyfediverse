@@ -65,11 +65,13 @@ mastodon-rn/
 ### Installation
 
 1. **Navigate to the React Native project:**
+
    ```bash
    cd ios/mastodon-rn
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    # or
@@ -77,6 +79,7 @@ mastodon-rn/
    ```
 
 3. **Start the development server:**
+
    ```bash
    npm start
    # or
@@ -129,6 +132,7 @@ npm run type-check
 This project follows the roadmap defined in `/ios/REACT_NATIVE_MIGRATION_ROADMAP.md`:
 
 ### ✅ Phase 0: Foundation & Setup (COMPLETE)
+
 - [x] Project initialization with Expo
 - [x] TypeScript configuration
 - [x] ESLint and Prettier setup
@@ -138,6 +142,7 @@ This project follows the roadmap defined in `/ios/REACT_NATIVE_MIGRATION_ROADMAP
 - [x] Configuration files
 
 ### ✅ Expo SDK 54 Upgrade (COMPLETE)
+
 - [x] Upgraded from Expo SDK 51 to SDK 54
 - [x] Upgraded from React Native 0.74.5 to 0.81.5
 - [x] Upgraded from React 18.2.0 to 19.1.0
@@ -151,6 +156,7 @@ This project follows the roadmap defined in `/ios/REACT_NATIVE_MIGRATION_ROADMAP
 - [x] React 19 compatibility verified
 
 ### ✅ Phase 1-8: Core Features (COMPLETE)
+
 See `FINAL_APP_STATE.md` for complete feature list.
 
 ## Key Technologies
@@ -183,6 +189,7 @@ See `FINAL_APP_STATE.md` for complete feature list.
 ### App Configuration
 
 Edit `src/config/index.ts` to customize:
+
 - API timeouts and retry behavior
 - Cache TTL values
 - Feed page sizes
@@ -191,6 +198,7 @@ Edit `src/config/index.ts` to customize:
 ### Expo Configuration
 
 Edit `app.json` to customize:
+
 - App name and slug
 - Bundle identifier
 - Icons and splash screens
@@ -218,12 +226,14 @@ npm run test:coverage
 ### Common Issues
 
 **1. Metro bundler won't start**
+
 ```bash
 # Clear cache and restart
 npx expo start -c
 ```
 
 **2. iOS build fails**
+
 ```bash
 # Clean and rebuild
 cd ios && rm -rf Pods Podfile.lock
@@ -231,10 +241,12 @@ cd .. && npx expo prebuild --clean
 ```
 
 **3. TypeScript ESLint warnings about unsupported version**
+
 - The project uses `@typescript-eslint` v8.47.0 which supports TypeScript 5.9.3
 - If you see warnings, ensure npm overrides are applied correctly
 
 **3. Dependencies out of sync**
+
 ```bash
 # Reinstall dependencies
 rm -rf node_modules
@@ -242,6 +254,7 @@ npm install
 ```
 
 **4. TypeScript ESLint warnings about unsupported version**
+
 - The project uses `@typescript-eslint` v8.47.0 which supports TypeScript 5.9.3
 - If you see warnings, ensure npm overrides are applied correctly
 
@@ -263,6 +276,7 @@ Same as parent project.
 ---
 
 **Current Status**: Expo SDK 54 Upgrade Complete ✅
+
 - Upgraded from Expo SDK 51 to SDK 54
 - Upgraded from React Native 0.74.5 to 0.81.5
 - Upgraded from React 18.2.0 to 19.1.0

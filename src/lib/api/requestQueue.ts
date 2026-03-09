@@ -44,7 +44,10 @@ export class RequestQueue {
   /**
    * Track and return a timer ID
    */
-  private createTimer(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+  private createTimer(
+    callback: () => void,
+    delay: number,
+  ): ReturnType<typeof setTimeout> {
     const timerId = setTimeout(() => {
       this.activeTimers.delete(timerId);
       callback();
@@ -223,12 +226,22 @@ export class RequestQueue {
     const code = status ?? this.getStatusCode(error);
 
     // Don't retry auth errors
-    if (code === 401 || code === 403 || message.includes("401") || message.includes("403")) {
+    if (
+      code === 401 ||
+      code === 403 ||
+      message.includes("401") ||
+      message.includes("403")
+    ) {
       return false;
     }
 
     // Don't retry client errors (except 429)
-    if (code === 400 || code === 404 || message.includes("400") || message.includes("404")) {
+    if (
+      code === 400 ||
+      code === 404 ||
+      message.includes("400") ||
+      message.includes("404")
+    ) {
       return false;
     }
 

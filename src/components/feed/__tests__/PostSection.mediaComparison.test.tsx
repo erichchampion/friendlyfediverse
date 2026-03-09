@@ -73,16 +73,20 @@ describe("PostSectionContent media comparison", () => {
     const nextPost = createMockPost([media2]);
 
     // Same array length
-    expect(prevPost.mediaAttachments.length).toBe(nextPost.mediaAttachments.length);
+    expect(prevPost.mediaAttachments.length).toBe(
+      nextPost.mediaAttachments.length,
+    );
 
     // But different URLs - this SHOULD trigger re-render
-    expect(prevPost.mediaAttachments[0].url).not.toBe(nextPost.mediaAttachments[0].url);
+    expect(prevPost.mediaAttachments[0].url).not.toBe(
+      nextPost.mediaAttachments[0].url,
+    );
 
     // CORRECT comparison: Check individual media items, not just length
     const mediaChanged =
       prevPost.mediaAttachments.length !== nextPost.mediaAttachments.length ||
-      prevPost.mediaAttachments.some((media, index) =>
-        media.url !== nextPost.mediaAttachments[index]?.url
+      prevPost.mediaAttachments.some(
+        (media, index) => media.url !== nextPost.mediaAttachments[index]?.url,
       );
 
     expect(mediaChanged).toBe(true);
@@ -95,12 +99,13 @@ describe("PostSectionContent media comparison", () => {
     const nextPost = createMockPost([media]); // Same reference
 
     // Length check passes
-    const lengthSame = prevPost.mediaAttachments.length === nextPost.mediaAttachments.length;
+    const lengthSame =
+      prevPost.mediaAttachments.length === nextPost.mediaAttachments.length;
     expect(lengthSame).toBe(true);
 
     // Individual items also the same
-    const mediaChanged = prevPost.mediaAttachments.some((media, index) =>
-      media.url !== nextPost.mediaAttachments[index]?.url
+    const mediaChanged = prevPost.mediaAttachments.some(
+      (media, index) => media.url !== nextPost.mediaAttachments[index]?.url,
     );
 
     expect(mediaChanged).toBe(false); // No change, should not re-render
@@ -114,7 +119,9 @@ describe("PostSectionContent media comparison", () => {
     const nextPost = createMockPost([media1, media2]);
 
     // Length changed
-    expect(prevPost.mediaAttachments.length).not.toBe(nextPost.mediaAttachments.length);
+    expect(prevPost.mediaAttachments.length).not.toBe(
+      nextPost.mediaAttachments.length,
+    );
 
     // Should trigger re-render
     const shouldReRender =
@@ -131,7 +138,9 @@ describe("PostSectionContent media comparison", () => {
     const nextPost = createMockPost([media1]);
 
     // Length changed
-    expect(prevPost.mediaAttachments.length).not.toBe(nextPost.mediaAttachments.length);
+    expect(prevPost.mediaAttachments.length).not.toBe(
+      nextPost.mediaAttachments.length,
+    );
 
     // Should trigger re-render
     const shouldReRender =

@@ -15,6 +15,7 @@ This document outlines the steps required to prepare and release the Friendly Fe
 ## Pre-Release Checklist
 
 ### Code Quality
+
 - [x] All phases (0-7) completed
 - [x] No TypeScript errors
 - [x] All linting rules pass
@@ -24,6 +25,7 @@ This document outlines the steps required to prepare and release the Friendly Fe
 - [ ] All TODOs addressed or documented
 
 ### Testing
+
 - [ ] Manual testing checklist completed
 - [ ] All critical bugs fixed
 - [ ] Performance targets met
@@ -32,12 +34,14 @@ This document outlines the steps required to prepare and release the Friendly Fe
 - [ ] No regressions from previous version
 
 ### Dependencies
+
 - [ ] All dependencies up to date
 - [ ] No security vulnerabilities (`npm audit`)
 - [ ] Unused dependencies removed
 - [ ] License compatibility verified
 
 ### Performance
+
 - [x] Feed scrolls at 60 FPS
 - [x] App launch < 2 seconds
 - [x] Memory usage < 200MB
@@ -50,16 +54,19 @@ This document outlines the steps required to prepare and release the Friendly Fe
 ## Version Management
 
 ### Versioning Strategy
+
 - Follow Semantic Versioning (SemVer): `MAJOR.MINOR.PATCH`
 - **MAJOR**: Breaking changes
 - **MINOR**: New features (backward compatible)
 - **PATCH**: Bug fixes
 
 ### Current Version
+
 - **Version**: 1.0.0
 - **Build Number**: 1
 
 ### Update Version
+
 ```bash
 # Update version in package.json
 npm version [major|minor|patch]
@@ -74,6 +81,7 @@ npm version [major|minor|patch]
 ## Build Configuration
 
 ### Environment Setup
+
 ```bash
 # Install dependencies
 npm install
@@ -86,6 +94,7 @@ npm run ios
 ```
 
 ### Production Build
+
 ```bash
 # Create production build
 eas build --platform ios --profile production
@@ -96,6 +105,7 @@ npx expo prebuild
 ```
 
 ### Build Profiles (eas.json)
+
 ```json
 {
   "build": {
@@ -125,16 +135,19 @@ npx expo prebuild
 ### Required Assets
 
 #### App Icon
+
 - **Sizes**: 1024x1024 (App Store), 180x180 (iPhone), 167x167 (iPad)
 - **Format**: PNG, no transparency
 - **Location**: `assets/images/icon.png`
 
 #### Splash Screen
+
 - **Sizes**: Various for different devices
 - **Format**: PNG
 - **Location**: `assets/images/splash.png`
 
 #### Screenshots
+
 - **Required Devices**:
   - iPhone 6.7" (iPhone 14 Pro Max)
   - iPhone 6.5" (iPhone 11 Pro Max)
@@ -152,6 +165,7 @@ npx expo prebuild
   6. Settings screen
 
 #### App Preview Video (Optional)
+
 - **Duration**: 15-30 seconds
 - **Format**: MP4 or MOV
 - **Orientation**: Portrait
@@ -161,12 +175,15 @@ npx expo prebuild
 ## App Store Listing
 
 ### App Name
+
 **Friendly Fediverse**
 
 ### Subtitle (30 characters)
+
 **Video-focused Mastodon client**
 
 ### Description
+
 ```
 Friendly Fediverse is a fast, native Mastodon client optimized for video content.
 
@@ -201,25 +218,30 @@ Join the federated social web with Friendly Fediverse!
 ```
 
 ### Keywords (100 characters)
+
 ```
 mastodon,social,video,fediverse,decentralized,open source,twitter,social network
 ```
 
 ### Support URL
+
 ```
 https://github.com/[your-org]/friendlyfediverse.com
 ```
 
 ### Privacy Policy URL
+
 ```
 https://[your-domain]/privacy-policy
 ```
 
 ### Category
+
 **Primary**: Social Networking
 **Secondary**: Photo & Video
 
 ### Content Rating
+
 **4+** (No objectionable content - content depends on instance)
 
 ---
@@ -227,6 +249,7 @@ https://[your-domain]/privacy-policy
 ## Privacy & Compliance
 
 ### Privacy Policy Required Information
+
 - What data is collected
 - How data is used
 - How data is stored
@@ -235,6 +258,7 @@ https://[your-domain]/privacy-policy
 - Contact information
 
 ### App Store Privacy Labels
+
 - **Data Collected**:
   - User authentication token (linked to user)
   - Instance URL (linked to user)
@@ -253,16 +277,19 @@ https://[your-domain]/privacy-policy
 ### Beta Testing Strategy
 
 #### Internal Testing
+
 1. **Testers**: Development team (5-10 people)
 2. **Duration**: 1 week
 3. **Focus**: Critical bugs, crashes
 
 #### External Testing
+
 1. **Testers**: Power users (50-100 people)
 2. **Duration**: 2-4 weeks
 3. **Focus**: User experience, feature requests
 
 ### TestFlight Setup
+
 ```bash
 # Build for TestFlight
 eas build --platform ios --profile production
@@ -275,6 +302,7 @@ eas submit --platform ios
 ```
 
 ### Beta Tester Instructions
+
 ```
 Welcome to the Friendly Fediverse beta!
 
@@ -303,6 +331,7 @@ Thank you for testing!
 ## App Store Submission
 
 ### Submission Checklist
+
 - [ ] Build uploaded to App Store Connect
 - [ ] Version number correct
 - [ ] Build number incremented
@@ -319,6 +348,7 @@ Thank you for testing!
 - [ ] Pricing and availability set
 
 ### Export Compliance
+
 **Question**: Does your app use encryption?
 
 **Answer**: Yes (for HTTPS network requests)
@@ -332,6 +362,7 @@ Thank you for testing!
 ## Release Notes Template
 
 ### Version 1.0.0
+
 ```
 Initial release of Friendly Fediverse!
 
@@ -363,6 +394,7 @@ Join the federated social web today!
 ## Post-Release
 
 ### Monitoring
+
 - [ ] Monitor crash reports (if crash reporting implemented)
 - [ ] Check App Store reviews
 - [ ] Monitor user feedback
@@ -372,6 +404,7 @@ Join the federated social web today!
 ### Response Plan
 
 #### Critical Bugs (Crashes, Data Loss)
+
 1. Acknowledge issue within 24 hours
 2. Create hotfix branch
 3. Fix and test
@@ -379,11 +412,13 @@ Join the federated social web today!
 5. Timeline: 24-48 hours
 
 #### High Priority Bugs (Major Features Broken)
+
 1. Acknowledge issue within 48 hours
 2. Include in next patch release
 3. Timeline: 1-2 weeks
 
 #### Medium/Low Priority
+
 1. Collect feedback
 2. Prioritize for next minor release
 3. Timeline: 4-6 weeks
@@ -393,6 +428,7 @@ Join the federated social web today!
 ## App Store Review Guidelines
 
 ### Common Rejection Reasons
+
 1. **Crashes**: App must not crash
 2. **Broken features**: All advertised features must work
 3. **Privacy**: Privacy policy must be accurate
@@ -400,6 +436,7 @@ Join the federated social web today!
 5. **Metadata**: Screenshots and description must be accurate
 
 ### Preparation
+
 - Test on real devices
 - Test all advertised features
 - Review App Store guidelines
@@ -411,6 +448,7 @@ Join the federated social web today!
 ## Marketing & Launch
 
 ### Pre-Launch (1-2 weeks before)
+
 - [ ] Create landing page
 - [ ] Prepare social media accounts
 - [ ] Write blog post
@@ -419,6 +457,7 @@ Join the federated social web today!
 - [ ] Prepare demo video
 
 ### Launch Day
+
 - [ ] Publish blog post
 - [ ] Post on social media
 - [ ] Submit to Product Hunt
@@ -427,6 +466,7 @@ Join the federated social web today!
 - [ ] Update website
 
 ### Post-Launch (1 week after)
+
 - [ ] Respond to reviews
 - [ ] Collect feedback
 - [ ] Monitor metrics
@@ -438,18 +478,21 @@ Join the federated social web today!
 ## Update Strategy
 
 ### Patch Releases (1.0.x)
+
 - **Frequency**: As needed for critical bugs
 - **Changes**: Bug fixes only
 - **Testing**: Regression testing
 - **Timeline**: 1-2 weeks
 
 ### Minor Releases (1.x.0)
+
 - **Frequency**: Monthly
 - **Changes**: New features, improvements
 - **Testing**: Full testing suite
 - **Timeline**: 4-6 weeks
 
 ### Major Releases (x.0.0)
+
 - **Frequency**: Yearly
 - **Changes**: Major features, redesigns
 - **Testing**: Comprehensive testing
@@ -460,7 +503,9 @@ Join the federated social web today!
 ## Emergency Procedures
 
 ### App Store Removal Request
+
 If critical security issue or data breach:
+
 1. Contact Apple immediately
 2. Request app removal
 3. Fix issue
@@ -468,6 +513,7 @@ If critical security issue or data breach:
 5. Re-submit when fixed
 
 ### Critical Bug Hotfix
+
 1. Create hotfix branch from production
 2. Fix bug with minimal changes
 3. Test thoroughly
@@ -479,6 +525,7 @@ If critical security issue or data breach:
 ## Rollback Procedure
 
 If new version has critical issues:
+
 1. Identify issue scope
 2. Remove problematic version if possible
 3. Revert to previous stable version
@@ -490,6 +537,7 @@ If new version has critical issues:
 ## Success Metrics
 
 ### Key Performance Indicators (KPIs)
+
 - **Downloads**: Track daily/weekly/monthly
 - **Active Users**: Daily and monthly active users
 - **Retention**: Day 1, Day 7, Day 30 retention
@@ -498,6 +546,7 @@ If new version has critical issues:
 - **Performance**: App Store search ranking
 
 ### Targets (First 3 Months)
+
 - **Downloads**: 1,000+
 - **DAU/MAU Ratio**: >20%
 - **Day 7 Retention**: >30%
@@ -510,12 +559,14 @@ If new version has critical issues:
 ## Contact Information
 
 ### Support Channels
+
 - **Email**: support@[your-domain]
 - **Twitter**: @mastodonvideo
 - **GitHub**: github.com/[your-org]/friendlyfediverse.com
 - **Mastodon**: @mastodonvideo@mastodon.social
 
 ### Team Contacts
+
 - **Project Lead**: [Name]
 - **Development**: [Name]
 - **Support**: [Name]
@@ -526,11 +577,13 @@ If new version has critical issues:
 ## Resources
 
 ### Apple Developer
+
 - App Store Connect: https://appstoreconnect.apple.com
 - Developer Portal: https://developer.apple.com
 - Guidelines: https://developer.apple.com/app-store/review/guidelines/
 
 ### Documentation
+
 - Expo: https://docs.expo.dev
 - React Native: https://reactnative.dev
 - TestFlight: https://developer.apple.com/testflight/

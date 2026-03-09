@@ -200,7 +200,10 @@ export async function startOAuthFlow(
 
   const authUrl = `${normalizedUrl}/oauth/authorize?${new URLSearchParams(params).toString()}`;
 
-  console.info("Starting OAuth flow with redirect", { forceLogin, url: authUrl });
+  console.info("Starting OAuth flow with redirect", {
+    forceLogin,
+    url: authUrl,
+  });
 
   // Save OAuth state before redirecting so we can complete the flow when we return
   await savePendingOAuthState({

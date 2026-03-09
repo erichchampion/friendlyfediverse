@@ -106,7 +106,11 @@ export function RichText({ post, content, maxLines }: RichTextProps) {
     }
 
     // Find all URLs (trim trailing closing delimiter when preceded by matching opener, e.g. (https://example.com) )
-    const closingPairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+    const closingPairs: Record<string, string> = {
+      "(": ")",
+      "[": "]",
+      "{": "}",
+    };
     while ((match = urlPattern.exec(content)) !== null) {
       let url = match[0];
       let length = match[0].length;
@@ -115,7 +119,10 @@ export function RichText({ post, content, maxLines }: RichTextProps) {
       if (closing && url.endsWith(closing)) {
         url = url.slice(0, -1);
         length -= 1;
-      } else if ((charBefore === '"' || charBefore === "'") && url.endsWith(charBefore)) {
+      } else if (
+        (charBefore === '"' || charBefore === "'") &&
+        url.endsWith(charBefore)
+      ) {
         url = url.slice(0, -1);
         length -= 1;
       }

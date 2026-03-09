@@ -16,7 +16,9 @@ export default function PrivacyPage() {
 
       <Pressable
         accessibilityRole="link"
-        onPress={() => Linking.openURL("https://www.friendlyfediverse.com/privacy")}
+        onPress={() =>
+          Linking.openURL("https://www.friendlyfediverse.com/privacy")
+        }
       >
         <Text style={[styles.link, { color: colors.accent }]}>
           View the full policy at friendlyfediverse.com/privacy
@@ -46,9 +48,9 @@ export default function PrivacyPage() {
         Third-Party Services
       </Text>
       <Text style={[styles.paragraph, { color: colors.text }]}>
-        When you use friendlyfediverse.com, you connect directly to Mastodon servers
-        operated by third parties. Please review the privacy policy of your
-        Mastodon server for information about how they handle your data.
+        When you use friendlyfediverse.com, you connect directly to Mastodon
+        servers operated by third parties. Please review the privacy policy of
+        your Mastodon server for information about how they handle your data.
       </Text>
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>

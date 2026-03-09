@@ -45,13 +45,17 @@ function createInMemoryStore(): IFeedPostStore {
   function getSorted(feedKey: string): Post[] {
     const posts = byFeed.get(feedKey) ?? [];
     return [...posts].sort((a, b) => {
-      return String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
+      return String(b.id).localeCompare(String(a.id), undefined, {
+        numeric: true,
+      });
     });
   }
 
   function setSorted(feedKey: string, posts: Post[]): void {
     const sorted = [...posts].sort((a, b) => {
-      return String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
+      return String(b.id).localeCompare(String(a.id), undefined, {
+        numeric: true,
+      });
     });
     const trimmed = sorted.slice(0, MAX_POSTS);
     byFeed.set(feedKey, trimmed);
@@ -66,12 +70,18 @@ function createInMemoryStore(): IFeedPostStore {
       let posts = getSorted(feedKey);
       if (newerThanId != null) {
         posts = posts.filter(
-          (p) => String(p.id).localeCompare(String(newerThanId), undefined, { numeric: true }) > 0,
+          (p) =>
+            String(p.id).localeCompare(String(newerThanId), undefined, {
+              numeric: true,
+            }) > 0,
         );
       }
       if (olderThanId != null) {
         posts = posts.filter(
-          (p) => String(p.id).localeCompare(String(olderThanId), undefined, { numeric: true }) < 0,
+          (p) =>
+            String(p.id).localeCompare(String(olderThanId), undefined, {
+              numeric: true,
+            }) < 0,
         );
       }
       return posts.slice(0, limit);

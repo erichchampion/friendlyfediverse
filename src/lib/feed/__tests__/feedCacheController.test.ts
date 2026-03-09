@@ -113,11 +113,7 @@ describe("FeedCacheController", () => {
     });
 
     it("triggers server fetch when target not in cache", async () => {
-      const contextPosts = [
-        makePost("2"),
-        makePost("3"),
-        makePost("4"),
-      ];
+      const contextPosts = [makePost("2"), makePost("3"), makePost("4")];
       fetchContextAround.mockResolvedValue(contextPosts);
 
       const controller = createFeedCacheController(store, {
@@ -138,9 +134,7 @@ describe("FeedCacheController", () => {
       expect(fetchLatest).not.toHaveBeenCalled();
       expect(result).toEqual(contextPosts);
       const fromStore = await store.getPostsRange(FEED_KEY, { limit: 10 });
-      expect(fromStore.map((p) => p.id).sort()).toEqual(
-        ["2", "3", "4"].sort(),
-      );
+      expect(fromStore.map((p) => p.id).sort()).toEqual(["2", "3", "4"].sort());
     });
   });
 

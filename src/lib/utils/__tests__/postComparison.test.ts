@@ -7,10 +7,7 @@ import { haveMediaAttachmentsChanged } from "../postComparison";
 import type { MediaAttachment } from "@types";
 
 describe("haveMediaAttachmentsChanged", () => {
-  const createMockMedia = (
-    id: string,
-    url: string,
-  ): MediaAttachment => ({
+  const createMockMedia = (id: string, url: string): MediaAttachment => ({
     id,
     type: "image",
     url,
@@ -31,7 +28,10 @@ describe("haveMediaAttachmentsChanged", () => {
   it("should return true when array lengths differ", () => {
     const media1 = createMockMedia("1", "https://example.com/image1.jpg");
     const prev = [media1];
-    const next = [media1, createMockMedia("2", "https://example.com/image2.jpg")];
+    const next = [
+      media1,
+      createMockMedia("2", "https://example.com/image2.jpg"),
+    ];
 
     expect(haveMediaAttachmentsChanged(prev, next)).toBe(true);
   });
@@ -86,11 +86,3 @@ describe("haveMediaAttachmentsChanged", () => {
     expect(haveMediaAttachmentsChanged(prev, next)).toBe(true);
   });
 });
-
-
-
-
-
-
-
-

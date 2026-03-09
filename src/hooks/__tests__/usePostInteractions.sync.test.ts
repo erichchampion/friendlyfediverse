@@ -67,7 +67,8 @@ describe("usePostInteractions - Post Prop Sync", () => {
   it("should sync localPost when post prop favourited changes externally", async () => {
     const onUpdate = jest.fn();
     const { result, rerender } = renderHook(
-      (props: { post: Post }) => usePostInteractions({ post: props.post, onUpdate }),
+      (props: { post: Post }) =>
+        usePostInteractions({ post: props.post, onUpdate }),
       {
         initialProps: { post: mockPost },
       },
@@ -87,4 +88,3 @@ describe("usePostInteractions - Post Prop Sync", () => {
     });
   });
 });
-

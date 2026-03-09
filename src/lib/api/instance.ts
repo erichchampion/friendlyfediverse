@@ -55,7 +55,9 @@ export async function validateInstance(instanceUrl: string): Promise<boolean> {
     const hasIdentifier = !!data.uri || !!data.domain;
     const hasVersion = !!data.version;
 
-    console.info(`Instance validation result: hasIdentifier=${hasIdentifier}, hasVersion=${hasVersion}`);
+    console.info(
+      `Instance validation result: hasIdentifier=${hasIdentifier}, hasVersion=${hasVersion}`,
+    );
 
     return hasIdentifier && hasVersion;
   } catch (error) {
@@ -95,7 +97,10 @@ export async function getInstanceInfo(
     let registrationsOpen = true;
     if (typeof data.registrations === "boolean") {
       registrationsOpen = data.registrations;
-    } else if (typeof data.registrations === "object" && data.registrations !== null) {
+    } else if (
+      typeof data.registrations === "object" &&
+      data.registrations !== null
+    ) {
       registrationsOpen = data.registrations.enabled ?? true;
     }
 

@@ -61,7 +61,12 @@ describe("applyFavouriteStateToPost", () => {
       reblog: { ...basePost, id: "post-boosted", favourited: false },
     };
 
-    const updated = applyFavouriteStateToPost(boosted, "post-boosted", true, 10);
+    const updated = applyFavouriteStateToPost(
+      boosted,
+      "post-boosted",
+      true,
+      10,
+    );
 
     expect(updated.favourited).toBe(true);
     expect(updated.favouritesCount).toBe(10);
@@ -74,4 +79,3 @@ describe("applyFavouriteStateToPost", () => {
     expect(updated.favouritesCount).toBe(basePost.favouritesCount);
   });
 });
-

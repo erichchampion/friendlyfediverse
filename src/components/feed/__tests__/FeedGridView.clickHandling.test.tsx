@@ -16,7 +16,7 @@ jest.mock("../../media/MediaGrid", () => ({
   MediaGrid: ({ media, testID, mode }: any) => {
     const { View, TouchableOpacity, Text } = require("react-native");
     const isVideo = media[0]?.type === "video" || media[0]?.type === "gifv";
-    
+
     return (
       <View testID={testID || `media-grid-${media[0]?.id}`}>
         {/* Simulate the media item TouchableOpacity inside MediaGrid */}
@@ -263,7 +263,7 @@ describe("FeedGridView - Click Handling", () => {
       // So clicking anywhere inside should reach the parent TouchableOpacity
       // Click the grid item itself (which contains MediaGrid)
       const gridItem = getByTestId("media-grid-media-post-1").parent;
-      
+
       fireEvent.press(gridItem);
 
       // Advance past double-click delay
@@ -320,7 +320,7 @@ describe("FeedGridView - Click Handling", () => {
 
       // Click anywhere on the grid item - video player should not block touches
       const gridItem = getByTestId("media-grid-video-post-1").parent;
-      
+
       fireEvent.press(gridItem);
 
       // Advance past double-click delay
@@ -364,4 +364,3 @@ describe("FeedGridView - Click Handling", () => {
     });
   });
 });
-

@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  TextInput,
 } from "react-native";
 import { useState, useEffect } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -18,6 +19,8 @@ import {
   getFollowedAccounts,
   getFollowedHashtags,
   getSuggestions,
+  followAccountByAcct,
+  followHashtagByName,
 } from "@lib/api/mastodonRequests";
 import { Follow } from "@components/base/Follow";
 import type { mastodon } from "masto";
@@ -44,6 +47,10 @@ export default function ManageFollowsScreen() {
   const [accounts, setAccounts] = useState<mastodon.v1.Account[]>([]);
   const [hashtags, setHashtags] = useState<mastodon.v1.Tag[]>([]);
   const [suggestions, setSuggestions] = useState<mastodon.v1.Account[]>([]);
+
+  // Input states
+  const [followInput, setFollowInput] = useState("");
+  const [isSubmittingFollow, setIsSubmittingFollow] = useState(false);
 
   // Fetch data based on active tab
   useEffect(() => {
@@ -83,6 +90,42 @@ export default function ManageFollowsScreen() {
 
     fetchData();
   }, [activeTab]);
+
+  const handleAddFollow = async () => {
+    if (!followInput.trim() || isSubmittingFollow) return;
+
+    try {
+      setIsSubmittingFollow(true);
+      const activeClient = await getActiveClient();
+      if (!activeClient) {
+        throw new Error("No active client");
+      }
+
+      if (activeTab === "accounts") {
+        await followAccountByAcct(activeClient.client, followInput);
+        Alert.alert("Success", "Account followed successfully!");
+        // Refresh the list
+        const followedAccounts = await getFollowedAccounts(activeClient.client);
+        setAccounts(followedAccounts);
+      } else if (activeTab === "hashtags") {
+        await followHashtagByName(activeClient.client, followInput);
+        Alert.alert("Success", "Hashtag followed successfully!");
+        // Refresh the list
+        const followedHashtags = await getFollowedHashtags(activeClient.client);
+        setHashtags(followedHashtags);
+      }
+
+      setFollowInput("");
+    } catch (error) {
+      console.error("[ManageFollows] Error adding follow:", error);
+      Alert.alert(
+        "Error",
+        `Failed to follow ${activeTab === "accounts" ? "account" : "hashtag"}. Please check the input and try again.`,
+      );
+    } finally {
+      setIsSubmittingFollow(false);
+    }
+  };
 
   const handleClose = () => {
     router.back();
@@ -378,6 +421,55 @@ export default function ManageFollowsScreen() {
         {renderTabButton("suggestions", "Suggestions", "💡")}
       </View>
 
+      {/* Add Follow Input */}
+      {(activeTab === "accounts" || activeTab === "hashtags") && (
+        <View
+          style={[
+            styles.addFollowContainer,
+            { borderBottomColor: colors.border },
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.addFollowInput,
+              {
+                backgroundColor: colors.card,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            placeholder={
+              activeTab === "accounts"
+                ? "Add account (e.g. user@domain)"
+                : "Add hashtag (e.g. kittens)"
+            }
+            placeholderTextColor={colors.textSecondary}
+            value={followInput}
+            onChangeText={setFollowInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onSubmitEditing={handleAddFollow}
+            returnKeyType="done"
+            editable={!isSubmittingFollow}
+          />
+          <TouchableOpacity
+            style={[
+              styles.addFollowButton,
+              { backgroundColor: colors.primary },
+              (!followInput.trim() || isSubmittingFollow) && { opacity: 0.5 },
+            ]}
+            onPress={handleAddFollow}
+            disabled={!followInput.trim() || isSubmittingFollow}
+          >
+            {isSubmittingFollow ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.addFollowButtonText}>Follow</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Content */}
       <View style={styles.content}>{renderContent()}</View>
     </View>
@@ -422,6 +514,32 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 14,
+    fontWeight: "600",
+  },
+  addFollowContainer: {
+    flexDirection: "row",
+    padding: 16,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  addFollowInput: {
+    flex: 1,
+    height: 44,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  addFollowButton: {
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addFollowButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "600",
   },
   content: {

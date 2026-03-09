@@ -5,6 +5,7 @@ This directory contains TypeScript type definitions shared between the web app a
 ## Purpose
 
 Sharing types ensures:
+
 - ✅ **Consistency**: Both platforms use identical data structures
 - ✅ **Type Safety**: TypeScript catches mismatches at compile time
 - ✅ **Single Source of Truth**: Update types once, applies everywhere
@@ -30,14 +31,14 @@ shared/types/
 ### In Web App (Next.js)
 
 ```typescript
-import { Post, User, Instance } from '@shared/types';
+import { Post, User, Instance } from "@shared/types";
 // or import specific types
-import type { MediaAttachment } from '@shared/types/media';
+import type { MediaAttachment } from "@shared/types/media";
 
 const user: User = {
-  id: '123',
-  username: 'johndoe',
-  displayName: 'John Doe',
+  id: "123",
+  username: "johndoe",
+  displayName: "John Doe",
   // ...
 };
 ```
@@ -45,13 +46,13 @@ const user: User = {
 ### In React Native App (Expo)
 
 ```typescript
-import { Post, User, Instance } from '@shared/types';
+import { Post, User, Instance } from "@shared/types";
 // or through the re-export
-import type { Post } from '@types';
+import type { Post } from "@types";
 
 const post: Post = {
-  id: '456',
-  content: 'Hello world',
+  id: "456",
+  content: "Hello world",
   // ...
 };
 ```
@@ -59,13 +60,17 @@ const post: Post = {
 ## Type Modules
 
 ### `user.ts`
+
 Defines user/account related types:
+
 - `User` - Full Mastodon account structure
 - `UserField` - Profile metadata fields
 - `CustomEmoji` - Custom emoji definitions
 
 ### `post.ts`
+
 Defines post/status related types:
+
 - `Post` - Full Mastodon status structure
 - `Mention` - User mentions in posts
 - `Tag` - Hashtags
@@ -74,26 +79,34 @@ Defines post/status related types:
 - `PostVisibility` - Visibility levels
 
 ### `media.ts`
+
 Defines media attachment types:
+
 - `MediaAttachment` - Media files (images, videos, audio)
 - `MediaMeta` - Metadata (dimensions, duration, etc.)
 - `MediaDimensions` - Width/height info
 
 ### `instance.ts`
+
 Defines instance/server types:
+
 - `Instance` - Server configuration
 - `InstanceInfo` - Server metadata
 - `InstanceStats` - Server statistics
 - `InstanceSettings` - User preferences per instance
 
 ### `auth.ts`
+
 Defines authentication types:
+
 - `AuthData` - Stored authentication data
 - `AppRegistration` - OAuth app credentials
 - `OAuthToken` - OAuth token response
 
 ### `feed.ts`
+
 Defines feed/timeline types:
+
 - `FeedType` - Feed type identifiers
 - `TimelineOptions` - Pagination parameters
 - `FeedState` - Feed state management
@@ -101,6 +114,7 @@ Defines feed/timeline types:
 ## Configuration
 
 ### Web App (`/tsconfig.json`)
+
 ```json
 {
   "compilerOptions": {
@@ -112,6 +126,7 @@ Defines feed/timeline types:
 ```
 
 ### React Native (`/ios/mastodon-rn/tsconfig.json`)
+
 ```json
 {
   "compilerOptions": {
@@ -123,6 +138,7 @@ Defines feed/timeline types:
 ```
 
 ### React Native Babel (`/ios/mastodon-rn/babel.config.js`)
+
 ```javascript
 {
   alias: {
@@ -139,23 +155,25 @@ Defines feed/timeline types:
 4. **Test compilation** in both web and RN
 
 Example:
+
 ```typescript
 // shared/types/notification.ts
 export interface Notification {
   id: string;
-  type: 'mention' | 'reblog' | 'favourite' | 'follow';
+  type: "mention" | "reblog" | "favourite" | "follow";
   account: User;
   status?: Post;
   createdAt: string;
 }
 
 // shared/types/index.ts
-export * from './notification';
+export * from "./notification";
 ```
 
 ## Migration Notes
 
 The RN app's `src/types/index.ts` now re-exports from shared types:
+
 ```typescript
 // Before: Duplicated types
 export interface User { ... }
@@ -165,13 +183,15 @@ export * from '@shared/types';
 ```
 
 This means existing imports still work:
+
 ```typescript
-import { Post } from '@types'; // Still works!
+import { Post } from "@types"; // Still works!
 ```
 
 ## Best Practices
 
 ### ✅ DO
+
 - Keep types minimal and focused
 - Use optional properties (`?`) for non-required fields
 - Import types using `import type` when possible
@@ -179,6 +199,7 @@ import { Post } from '@types'; // Still works!
 - Version types with the API they represent
 
 ### ❌ DON'T
+
 - Add platform-specific types here (put in app-specific types)
 - Include implementation logic (types only!)
 - Make breaking changes without updating both apps
@@ -192,9 +213,10 @@ If you need platform-specific type augmentations:
 **RN:** Add to `/ios/mastodon-rn/src/types/` after the re-export
 
 Example:
+
 ```typescript
 // ios/mastodon-rn/src/types/index.ts
-export * from '@shared/types';
+export * from "@shared/types";
 
 // Platform-specific augmentation
 export interface NativeMediaAttachment extends MediaAttachment {
@@ -205,6 +227,7 @@ export interface NativeMediaAttachment extends MediaAttachment {
 ## Type Versioning
 
 Types should match the Mastodon API version they represent. For breaking changes:
+
 1. Update types to match new API
 2. Update both web and RN apps to handle new structure
 3. Test thoroughly before deploying
@@ -225,6 +248,7 @@ npx tsc --noEmit
 ## Future Enhancements
 
 Potential improvements:
+
 - Add JSON schema generation
 - Create runtime validators
 - Generate API client types from OpenAPI spec

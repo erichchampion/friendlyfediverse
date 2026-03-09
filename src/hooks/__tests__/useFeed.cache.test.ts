@@ -104,7 +104,12 @@ describe("useFeed with feed cache layer", () => {
             home: {
               list: jest.fn().mockReturnValue({
                 [Symbol.asyncIterator]: async function* () {
-                  yield latest.map((p) => ({ id: p.id, content: p.content, createdAt: p.createdAt, account: p.account }));
+                  yield latest.map((p) => ({
+                    id: p.id,
+                    content: p.content,
+                    createdAt: p.createdAt,
+                    account: p.account,
+                  }));
                 },
               }),
             },
@@ -169,7 +174,9 @@ describe("useFeed with feed cache layer", () => {
   it("loadMore returns cached older posts when present", async () => {
     const store = createFeedPostStore();
     await store.clearAll();
-    const posts = Array.from({ length: 30 }, (_, i) => makePost(String(100 + i)));
+    const posts = Array.from({ length: 30 }, (_, i) =>
+      makePost(String(100 + i)),
+    );
     await store.addPosts(CACHE_KEY, posts);
 
     const fetchLatest = jest.fn().mockResolvedValue(posts.slice(0, 20));
@@ -213,7 +220,12 @@ describe("useFeed with feed cache layer", () => {
             home: {
               list: jest.fn().mockReturnValue({
                 [Symbol.asyncIterator]: async function* () {
-                  yield latest.map((p) => ({ id: p.id, content: p.content, createdAt: p.createdAt, account: p.account }));
+                  yield latest.map((p) => ({
+                    id: p.id,
+                    content: p.content,
+                    createdAt: p.createdAt,
+                    account: p.account,
+                  }));
                 },
               }),
             },

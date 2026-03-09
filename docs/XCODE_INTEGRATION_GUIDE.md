@@ -21,6 +21,7 @@ This is the cleanest and most maintainable approach for Expo-based React Native 
 #### Steps:
 
 1. **Generate Native iOS Project**
+
    ```bash
    cd ios/mastodon-rn
    npx expo prebuild --platform ios
@@ -33,6 +34,7 @@ This is the cleanest and most maintainable approach for Expo-based React Native 
    - Has proper build phases for Metro bundler
 
 3. **Build and Release**
+
    ```bash
    # Development build
    npx expo run:ios
@@ -65,10 +67,12 @@ If you need to keep the existing `ios/mastodon/project.yml` structure, you can i
 #### Prerequisites:
 
 1. **Run Expo Prebuild First**
+
    ```bash
    cd ios/mastodon-rn
    npx expo prebuild --platform ios
    ```
+
    This generates the native modules needed.
 
 2. **Install CocoaPods Dependencies**
@@ -84,6 +88,7 @@ See `ios/mastodon/project-rn.yml` for the complete updated configuration.
 **Key Changes Required:**
 
 1. **Add React Native Framework Search Paths**
+
    ```yaml
    FRAMEWORK_SEARCH_PATHS:
      - $(inherited)
@@ -92,6 +97,7 @@ See `ios/mastodon/project-rn.yml` for the complete updated configuration.
    ```
 
 2. **Add Metro Bundler Script**
+
    ```bash
    # Bundle React Native JavaScript
    export NODE_BINARY=node
@@ -118,6 +124,7 @@ See `ios/mastodon/project-rn.yml` for the complete updated configuration.
 1. **Update project.yml** (see project-rn.yml)
 
 2. **Generate Xcode project**
+
    ```bash
    cd ios/mastodon
    xcodegen generate
@@ -126,6 +133,7 @@ See `ios/mastodon/project-rn.yml` for the complete updated configuration.
 3. **Configure CocoaPods**
 
    Create or update `ios/mastodon/Podfile`:
+
    ```ruby
    platform :ios, '18.5'
 
@@ -150,6 +158,7 @@ See `ios/mastodon/project-rn.yml` for the complete updated configuration.
    ```
 
 4. **Install Pods**
+
    ```bash
    cd ios/mastodon
    pod install
@@ -211,6 +220,7 @@ eas submit --platform ios
 1. **Configure EAS**
 
    Already configured in `ios/mastodon-rn/app.json`:
+
    ```json
    {
      "expo": {
@@ -224,6 +234,7 @@ eas submit --platform ios
 2. **Create EAS Build Profile**
 
    Create `ios/mastodon-rn/eas.json`:
+
    ```json
    {
      "build": {
@@ -245,6 +256,7 @@ eas submit --platform ios
    ```
 
 3. **Build Commands**
+
    ```bash
    # Preview build (for testing)
    eas build --platform ios --profile preview
@@ -256,11 +268,13 @@ eas submit --platform ios
 ### Using Xcode (Alternative)
 
 1. **Generate project**
+
    ```bash
    npx expo prebuild --platform ios
    ```
 
 2. **Open in Xcode**
+
    ```bash
    cd ios/mastodon-rn/ios
    open mastodonvideo.xcworkspace
@@ -280,6 +294,7 @@ eas submit --platform ios
 ## File Structure After Integration
 
 ### Approach 1 (Expo-generated):
+
 ```
 friendlyfediverse.com/
 ├── ios/
@@ -299,6 +314,7 @@ friendlyfediverse.com/
 ```
 
 ### Approach 2 (Manual integration):
+
 ```
 friendlyfediverse.com/
 ├── ios/
@@ -324,6 +340,7 @@ Follow the testing guide: `ios/mastodon-rn/TESTING_GUIDE.md`
 ### Critical Tests:
 
 1. **Build succeeds**
+
    ```bash
    npx expo run:ios
    # Should launch app successfully
@@ -355,20 +372,24 @@ Follow the testing guide: `ios/mastodon-rn/TESTING_GUIDE.md`
 ### Common Issues:
 
 **1. "Command PhaseScriptExecution failed"**
+
 - Ensure Node.js is installed and in PATH
 - Run `npm install` in mastodon-rn/
 - Clear build folder and retry
 
 **2. "CocoaPods could not find compatible versions"**
+
 - Run `cd ios && pod repo update`
 - Delete Podfile.lock and retry
 - Ensure iOS deployment target matches (18.5)
 
 **3. "Bundle identifier mismatch"**
+
 - Ensure app.json has `"bundleIdentifier": "com.friendlyfediverse"`
 - Run `npx expo prebuild --clean` to regenerate
 
 **4. "React Native dependency not found"**
+
 - Run `npx expo install --fix`
 - Verify all packages in package.json are installed
 - Run `npm install` again

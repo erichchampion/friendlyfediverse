@@ -7,14 +7,14 @@ export interface TimelineOption {
   id: string;
   name: string;
   type:
-    | 'home'
-    | 'public'
-    | 'local'
-    | 'list'
-    | 'hashtag'
-    | 'account'
-    | 'favourites'
-    | 'bookmarks';
+    | "home"
+    | "public"
+    | "local"
+    | "list"
+    | "hashtag"
+    | "account"
+    | "favourites"
+    | "bookmarks";
   description?: string;
 }
 

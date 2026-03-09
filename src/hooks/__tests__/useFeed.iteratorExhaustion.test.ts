@@ -304,9 +304,12 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
     }
 
     // After iterator6 returns done with counter = 5, should mark as exhausted
-    await waitFor(() => {
-      expect(result.current.hasMore).toBe(false);
-    }, { timeout: 5000 });
+    await waitFor(
+      () => {
+        expect(result.current.hasMore).toBe(false);
+      },
+      { timeout: 5000 },
+    );
   });
 
   it("should continue pagination when new posts are available after empty result", async () => {
@@ -421,4 +424,3 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
     expect(paginatorCallCount).toBe(2);
   });
 });
-

@@ -80,17 +80,17 @@ function buildTimelineIterator(
  * - 'newer': Fetch posts newer than the current set (using sinceId)
  *
  * IMPORTANT: How masto.js iterators work for pagination:
- * 
+ *
  * Masto.js iterators are designed to paginate through a specific range defined by
  * the initial pagination parameters (maxId/sinceId). When an iterator returns
  * `done: true`, it means that particular pagination range is exhausted, NOT that
  * the entire feed is exhausted.
- * 
+ *
  * To continue pagination beyond an iterator's exhaustion, you must create a NEW
  * iterator with updated pagination parameters (new maxId/sinceId based on the
  * latest posts you've received). This is why we removed the `hasMore` flag from
  * this wrapper - the wrapper should not maintain permanent exhaustion state.
- * 
+ *
  * Instead, when an iterator exhausts, the caller (useFeed) resets the iterator
  * reference and creates a new iterator with updated params on the next pagination
  * call. This allows continuous pagination through the entire feed.
@@ -328,6 +328,66 @@ export async function getSuggestions(
     return finalResults;
   } catch (error) {
     console.error("[mastodonRequests] Error fetching suggestions:", error);
+    throw error;
+  }
+}
+
+/**
+ * Follow an account by its acct string (e.g., user@domain)
+ */
+export async function followAccountByAcct(
+  client: MastodonClient,
+  acct: string,
+) {
+  if (!client?.v1) {
+    throw new Error("Mastodon client not available");
+  }
+
+  try {
+    const cleanAcct = acct.trim().replace(/^@/, "");
+    // Search for the account
+    const searchResults = await client.v2.search.list({
+      q: cleanAcct,
+      resolve: true,
+      type: "accounts",
+      limit: 1,
+    });
+
+    if (!searchResults.accounts || searchResults.accounts.length === 0) {
+      throw new Error("Account not found");
+    }
+
+    const account = searchResults.accounts[0];
+
+    // Follow the account
+    const relationship = await client.v1.accounts.$select(account.id).follow();
+    return relationship;
+  } catch (error) {
+    console.error(`[mastodonRequests] Error following account ${acct}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Follow a hashtag by its name
+ */
+export async function followHashtagByName(
+  client: MastodonClient,
+  hashtag: string,
+) {
+  if (!client?.v1) {
+    throw new Error("Mastodon client not available");
+  }
+
+  try {
+    const cleanTag = hashtag.trim().replace(/^#/, "");
+    const tag = await client.v1.tags.$select(cleanTag).follow();
+    return tag;
+  } catch (error) {
+    console.error(
+      `[mastodonRequests] Error following hashtag ${hashtag}:`,
+      error,
+    );
     throw error;
   }
 }

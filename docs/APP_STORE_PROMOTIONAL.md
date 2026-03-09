@@ -3,45 +3,45 @@
 **Draft for App Store Connect.**  
 Source copy for the Friendly Fediverse listing on the Apple App Store (iOS and macOS). Use the sections below when filling in App Store Connect fields. Update the date when revising.
 
-*Last updated: February 2026*
+_Last updated: February 2026_
 
 ---
 
 ## App Store field reference
 
-| Field | Limit | Where it appears |
-|-------|--------|-------------------|
-| **Promotional Text** | 170 characters | Top of the app page; can be updated anytime without a new version. |
-| **Subtitle** | 30 characters | Directly under the app name. |
-| **Description** | 4,000 characters | Full product description; first paragraph is especially visible. |
-| **Keywords** | 100 characters total | Comma-separated, no spaces after commas; used for search. |
-| **What's New** | 4,000 characters | Release notes for the current version. |
+| Field                | Limit                | Where it appears                                                   |
+| -------------------- | -------------------- | ------------------------------------------------------------------ |
+| **Promotional Text** | 170 characters       | Top of the app page; can be updated anytime without a new version. |
+| **Subtitle**         | 30 characters        | Directly under the app name.                                       |
+| **Description**      | 4,000 characters     | Full product description; first paragraph is especially visible.   |
+| **Keywords**         | 100 characters total | Comma-separated, no spaces after commas; used for search.          |
+| **What's New**       | 4,000 characters     | Release notes for the current version.                             |
 
 ---
 
 ## Promotional Text
 
-*Copy into App Store Connect → Promotional Text (170 characters max).*
+_Copy into App Store Connect → Promotional Text (170 characters max)._
 
 Browse the fediverse in a media-first grid. Friendly Fediverse defaults to a visual feed—scroll fast, tap to view, and share or save images for use in other apps.
 
-*(169 characters)*
+_(169 characters)_
 
 ---
 
 ## Subtitle
 
-*Copy into App Store Connect → Subtitle (30 characters max).*
+_Copy into App Store Connect → Subtitle (30 characters max)._
 
 Media-first Mastodon client
 
-*(24 characters)*
+_(24 characters)_
 
 ---
 
 ## Short description / first paragraph
 
-*Use as the opening paragraph of the full Description field.*
+_Use as the opening paragraph of the full Description field._
 
 Friendly Fediverse is a media-centric Mastodon client that defaults to a grid view for quick browsing. Scroll through images and videos at a glance, tap to view full-size, and share or save content for use in other apps—all with a native iOS experience.
 
@@ -49,7 +49,7 @@ Friendly Fediverse is a media-centric Mastodon client that defaults to a grid vi
 
 ## Full description
 
-*Copy into App Store Connect → Description (4,000 characters max). Use the short description above as the first paragraph.*
+_Copy into App Store Connect → Description (4,000 characters max). Use the short description above as the first paragraph._
 
 Friendly Fediverse is a media-centric Mastodon client that defaults to a grid view for quick browsing. Scroll through images and videos at a glance, tap to view full-size, and share or save content for use in other apps—all with a native iOS experience.
 
@@ -85,17 +85,17 @@ Friendly Fediverse is for anyone who loves visual content on the fediverse. Whet
 
 ## Keywords
 
-*Copy into App Store Connect → Keywords (100 characters max, comma-separated, no spaces after commas).*
+_Copy into App Store Connect → Keywords (100 characters max, comma-separated, no spaces after commas)._
 
 mastodon,fediverse,social,media,grid,video,photos,decentralized,open source,share,save
 
-*(77 characters)*
+_(77 characters)_
 
 ---
 
 ## What's New (sample)
 
-*Optional. Copy or adapt for App Store Connect → Version Release Notes.*
+_Optional. Copy or adapt for App Store Connect → Version Release Notes._
 
 **Media-first grid view**
 
@@ -117,37 +117,37 @@ Thank you for using Friendly Fediverse. We hope it makes your fediverse browsing
 
 ## Social media announcements (Bluesky / bsky.app)
 
-*Each post is under 300 characters for bsky.app. Use as-is or mix for launch, media, or feature-focused threads.*
+_Each post is under 300 characters for bsky.app. Use as-is or mix for launch, media, or feature-focused threads._
 
 **Launch**
 Introducing Friendly Fediverse: a media-centric Mastodon client that defaults to a grid view. Browse images and videos at a glance, tap to view, share or save for other apps. Native iOS. Now on the App Store.
-*(169 characters)*
+_(169 characters)_
 
 **Grid-first**
 Your feed, but visual. Friendly Fediverse opens in a grid so you can scroll through photos and videos fast—no digging through text. Switch to list view anytime. Media-first Mastodon on iOS.
-*(152 characters)*
+_(152 characters)_
 
 **Use content elsewhere**
 Browse the fediverse, find something useful, use it. Friendly Fediverse lets you save and share images to other apps with a long-press. Copy links, send to Notes, or drop into creative tools.
-*(159 characters)*
+_(159 characters)_
 
 **What it does**
 Friendly Fediverse: grid view by default, full Mastodon (home, local, public, lists, hashtags), like/boost/bookmark/share, compose with media, multi-account, search. Media-first. iOS.
-*(147 characters)*
+_(147 characters)_
 
 **Short punch**
 Media-first Mastodon. Grid view by default. Browse fast, save and share. Friendly Fediverse — iOS. App Store.
-*(87 characters)*
+_(87 characters)_
 
 **Privacy & open source**
 No tracking. Your data stays on your Mastodon instance. Friendly Fediverse is open source—see what it does. Media-centric fediverse browsing on iOS.
-*(131 characters)*
+_(131 characters)_
 
 ---
 
 ## Privacy highlights
 
-*Use on the product page or in App Store privacy notes.*
+_Use on the product page or in App Store privacy notes._
 
 • **Your data stays on your instance** — Authentication and posts are handled by your Mastodon server; the app does not store your content on its own servers.  
 • **Save and share** — Images can be saved or shared at your choice; the app uses the system share sheet.  

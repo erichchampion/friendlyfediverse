@@ -119,18 +119,18 @@ describe("Application Configuration", () => {
       // Optimized value to prevent blank screens during updates
       expect(VIRTUAL_SCROLL_UI_CONFIG.INITIAL_NUM_TO_RENDER).toBe(10);
     });
-    
+
     it("should have MAX_TO_RENDER_PER_BATCH of 5", () => {
       // Increased from 3 for smoother loading and better stability
       expect(VIRTUAL_SCROLL_UI_CONFIG.MAX_TO_RENDER_PER_BATCH).toBe(5);
     });
-    
+
     it("should have WINDOW_SIZE of 21", () => {
       // Increased from 10 to maintain larger virtual window
       // Prevents VirtualizedList from resetting when new posts are appended
       expect(VIRTUAL_SCROLL_UI_CONFIG.WINDOW_SIZE).toBe(21);
     });
-    
+
     it("should have UPDATE_CELLS_BATCHING_PERIOD of 200", () => {
       // Increased value to give React Native more time to batch updates
       expect(VIRTUAL_SCROLL_UI_CONFIG.UPDATE_CELLS_BATCHING_PERIOD).toBe(200);

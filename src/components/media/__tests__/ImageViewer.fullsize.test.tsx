@@ -158,4 +158,3 @@ describe("ImageViewer full-size toggle", () => {
     await waitFor(() => expect(mockShareAsync).toHaveBeenCalledTimes(1));
   });
 });
-

@@ -362,14 +362,12 @@ export function FeedGridView({
         };
         itemPositions.set(item.id, pos);
         cache.set(item.id, pos);
-        columnHeights[shortestCol] =
-          pos.yPosition + COLUMN_WIDTH + GRID_GAP;
+        columnHeights[shortestCol] = pos.yPosition + COLUMN_WIDTH + GRID_GAP;
       }
     });
 
     // 5. Compute container height
-    const maxHeight =
-      columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
+    const maxHeight = columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
 
     // Store positions in ref for visibility tracking
     itemPositionsRef.current = itemPositions;
@@ -655,7 +653,8 @@ export function FeedGridView({
     const contentHeight = lastScrollMetricsRef.current.contentHeight;
     const viewportHeight = lastScrollMetricsRef.current.viewportHeight;
 
-    const distanceFromBottom = contentHeight - (currentScrollY + viewportHeight);
+    const distanceFromBottom =
+      contentHeight - (currentScrollY + viewportHeight);
     const isAtBottom = distanceFromBottom < Math.max(200, viewportHeight * 0.2);
 
     // If the expected position is significantly different from current,
@@ -691,8 +690,8 @@ export function FeedGridView({
 
   // Shared delayed click handler; per-item callbacks are supplied at call time
   const handleDelayedItemClick = useDelayedClick({
-    onSingleClick: () => { },
-    onDoubleClick: () => { },
+    onSingleClick: () => {},
+    onDoubleClick: () => {},
   });
 
   // Create click handler for an item
@@ -773,24 +772,24 @@ export function FeedGridView({
       const pos = itemPositionsRef.current.get(item.id);
       const positioningStyle = pos
         ? {
-          position: "absolute" as const,
-          top: pos.yPosition,
-          left: pos.xPosition,
-          right: undefined,
-        }
+            position: "absolute" as const,
+            top: pos.yPosition,
+            left: pos.xPosition,
+            right: undefined,
+          }
         : undefined;
       const sizeStyle = pos
         ? {
-          width: COLUMN_WIDTH,
-          height: itemHeight,
-          maxWidth: COLUMN_WIDTH,
-        }
+            width: COLUMN_WIDTH,
+            height: itemHeight,
+            maxWidth: COLUMN_WIDTH,
+          }
         : {
-          width: COLUMN_WIDTH,
-          height: itemHeight,
-          marginBottom: GRID_GAP,
-          maxWidth: COLUMN_WIDTH,
-        };
+            width: COLUMN_WIDTH,
+            height: itemHeight,
+            marginBottom: GRID_GAP,
+            maxWidth: COLUMN_WIDTH,
+          };
 
       // Render based on item type
       if (item.type === "media") {
@@ -1028,13 +1027,19 @@ export function FeedGridView({
       // Continuous anchor tracking (runs every scroll event to guarantee pixel-perfect restoration when bounds change)
       let currentAnchorId: string | null = null;
       let currentAnchorTop = Infinity;
-      const clampedScrollY = Math.max(0, Math.min(scrollY, contentHeight - viewportHeight));
+      const clampedScrollY = Math.max(
+        0,
+        Math.min(scrollY, contentHeight - viewportHeight),
+      );
       const clampedViewportBottom = clampedScrollY + viewportHeight;
 
       itemPositionsRef.current.forEach((pos, itemId) => {
         const itemBottom = pos.yPosition + pos.height;
         // Find highest item that intersects the clamped viewport
-        if (itemBottom >= clampedScrollY && pos.yPosition <= clampedViewportBottom) {
+        if (
+          itemBottom >= clampedScrollY &&
+          pos.yPosition <= clampedViewportBottom
+        ) {
           if (pos.yPosition < currentAnchorTop) {
             currentAnchorTop = pos.yPosition;
             currentAnchorId = itemId;
@@ -1068,8 +1073,6 @@ export function FeedGridView({
           setVisibleItems(newVisibleItems);
         }
 
-
-
         // 2. Track visible posts for proactive loading
         // Convert visible grid items to visible posts using pre-computed map
         const newVisiblePosts = new Set<string>();
@@ -1085,7 +1088,7 @@ export function FeedGridView({
           now - lastProactiveLoadCheckRef.current;
         if (
           timeSinceLastProactiveCheck >=
-          UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
+            UI_CONFIG.PROACTIVE_LOAD_CHECK_INTERVAL &&
           onViewableItemsChanged
         ) {
           const visiblePostsChanged = !setsEqual(

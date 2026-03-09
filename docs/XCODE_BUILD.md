@@ -57,8 +57,8 @@ Then open **`ios/FriendlyFediverse.xcworkspace`**, choose a **simulator** as des
 
 ## Summary
 
-| Step | Action |
-|------|--------|
-| Open | `ios/FriendlyFediverse.xcworkspace` (not `.xcodeproj`) |
+| Step        | Action                                                                 |
+| ----------- | ---------------------------------------------------------------------- |
+| Open        | `ios/FriendlyFediverse.xcworkspace` (not `.xcodeproj`)                 |
 | Destination | A **simulator** (e.g. iPhone 16) so the build is Debug-iphonesimulator |
-| If needed | `cd ios && pod install`; clean build folder; clear DerivedData |
+| If needed   | `cd ios && pod install`; clean build folder; clear DerivedData         |

@@ -57,8 +57,8 @@ const arePostContentPropsEqual = (
     prevProps.isDoubleTapLiking === nextProps.isDoubleTapLiking &&
     prevProps.isVisible === nextProps.isVisible &&
     // Animated values are object references, so just check if they exist
-    (prevProps.heartPosition === nextProps.heartPosition) &&
-    (prevProps.heartOpacity === nextProps.heartOpacity)
+    prevProps.heartPosition === nextProps.heartPosition &&
+    prevProps.heartOpacity === nextProps.heartOpacity
   );
 };
 
@@ -99,10 +99,11 @@ export const PostContent = memo<PostContentProps>(function PostContent({
 
   const handleLinkPress = useCallback(
     (url: string) =>
-      createDelayedHandler(() =>
-        Linking.openURL(url).catch((error) => {
-          console.error("Error opening link:", error);
-        }),
+      createDelayedHandler(
+        () =>
+          Linking.openURL(url).catch((error) => {
+            console.error("Error opening link:", error);
+          }),
         post.id,
       ),
     [createDelayedHandler, post.id],
@@ -175,10 +176,7 @@ export const PostContent = memo<PostContentProps>(function PostContent({
 
       {/* Link preview card */}
       {post.card && post.mediaAttachments.length === 0 && (
-        <LinkCard
-          card={post.card}
-          onPress={handleLinkPress(post.card.url)}
-        />
+        <LinkCard card={post.card} onPress={handleLinkPress(post.card.url)} />
       )}
     </TouchableOpacity>
   );

@@ -8,11 +8,11 @@
  */
 
 // Re-export all types from individual modules
-export * from './user';
-export * from './media';
-export * from './post';
-export * from './instance';
-export * from './auth';
-export * from './feed';
-export * from './timeline';
-export * from './preferences';
+export * from "./user";
+export * from "./media";
+export * from "./post";
+export * from "./instance";
+export * from "./auth";
+export * from "./feed";
+export * from "./timeline";
+export * from "./preferences";

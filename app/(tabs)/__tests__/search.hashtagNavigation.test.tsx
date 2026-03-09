@@ -97,5 +97,3 @@ describe("SearchScreen hashtag navigation", () => {
     expect(mockPush).toHaveBeenCalledWith("/(tabs)/feed/hashtag/hello");
   });
 });
-
-

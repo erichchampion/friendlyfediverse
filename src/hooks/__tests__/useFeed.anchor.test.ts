@@ -387,12 +387,17 @@ describe("useFeed - Anchor-based loading (TDD)", () => {
     it("should support loading more posts after anchor load", async () => {
       const anchorStatus = createMockStatus("100");
       const olderStatuses = [createMockStatus("99")];
-      const evenOlderStatuses = [createMockStatus("98"), createMockStatus("97")];
+      const evenOlderStatuses = [
+        createMockStatus("98"),
+        createMockStatus("97"),
+      ];
 
       const mockGetActiveClient = jest.spyOn(client, "getActiveClient");
 
       // Mock getDirectionalTimelinePaginator to return evenOlderStatuses
-      const { getDirectionalTimelinePaginator } = require("@lib/api/mastodonRequests");
+      const {
+        getDirectionalTimelinePaginator,
+      } = require("@lib/api/mastodonRequests");
       getDirectionalTimelinePaginator.mockReturnValue({
         next: jest.fn().mockResolvedValue({
           done: false,
@@ -461,7 +466,12 @@ describe("useFeed - Anchor-based loading (TDD)", () => {
       });
 
       // Should have all posts in order
-      expect(result.current.posts.map(p => p.id)).toEqual(["100", "99", "98", "97"]);
+      expect(result.current.posts.map((p) => p.id)).toEqual([
+        "100",
+        "99",
+        "98",
+        "97",
+      ]);
     });
   });
 

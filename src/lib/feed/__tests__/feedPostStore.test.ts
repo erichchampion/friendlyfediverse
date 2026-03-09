@@ -59,11 +59,7 @@ describe("FeedPostStore", () => {
     });
 
     it("returns posts after addPosts (newest first by id)", async () => {
-      const posts = [
-        makePost("100"),
-        makePost("200"),
-        makePost("300"),
-      ];
+      const posts = [makePost("100"), makePost("200"), makePost("300")];
       await store.addPosts(FEED_KEY_A, posts);
       const result = await store.getPostsRange(FEED_KEY_A, { limit: 10 });
       expect(result).toHaveLength(3);
@@ -107,7 +103,13 @@ describe("FeedPostStore", () => {
       await store.addPosts(FEED_KEY_A, posts);
       const result = await store.getPostsRange(FEED_KEY_A, { limit: 5 });
       expect(result).toHaveLength(5);
-      expect(result.map((p) => p.id)).toEqual(["149", "148", "147", "146", "145"]);
+      expect(result.map((p) => p.id)).toEqual([
+        "149",
+        "148",
+        "147",
+        "146",
+        "145",
+      ]);
     });
   });
 

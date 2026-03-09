@@ -12,4 +12,3 @@ export const STYLE_CONSTANTS = {
 export const ASPECT_RATIOS = {
   LINK_CARD: 1.91, // Common preview aspect ratio (1200x628)
 } as const;
-

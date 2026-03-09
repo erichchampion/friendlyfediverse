@@ -5,18 +5,21 @@ This directory contains the app icons and splash screen required by Expo.
 ## Current Assets
 
 ### icon.png (1024x1024)
+
 - **Source**: Copied from `ios/mastodon/mastodon/Assets.xcassets/AppIcon.appiconset/mastodon-1024x1024.png`
 - **Purpose**: Main app icon used by Expo to generate all required iOS app icon sizes
 - **Format**: PNG, 1024x1024px
 - **Status**: ✅ Production ready
 
 ### splash.png (1024x1024)
+
 - **Source**: Temporary - copied from icon.png
 - **Purpose**: Splash screen shown when app launches
 - **Format**: PNG, 1024x1024px
 - **Status**: ⚠️ **Needs improvement** (see below)
 
 ### favicon.png (1024x1024)
+
 - **Source**: Copied from icon.png
 - **Purpose**: Web favicon (for Expo web builds)
 - **Format**: PNG, 1024x1024px
@@ -66,7 +69,7 @@ convert -size 1284x2778 xc:'#6364FF' \
 You can also handle splash screens programmatically with `expo-splash-screen`:
 
 ```typescript
-import * as SplashScreen from 'expo-splash-screen';
+import * as SplashScreen from "expo-splash-screen";
 
 // Keep splash visible while loading
 SplashScreen.preventAutoHideAsync();

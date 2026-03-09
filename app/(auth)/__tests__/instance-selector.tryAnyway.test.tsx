@@ -94,14 +94,18 @@ describe("InstanceSelectorScreen Try Anyway flow", () => {
     // Capture the Alert and trigger Try Anyway
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     const alertCall = (Alert.alert as jest.Mock).mock.calls[0];
-    const buttons = alertCall[2] as Array<{ text: string; onPress?: () => void }>;
+    const buttons = alertCall[2] as Array<{
+      text: string;
+      onPress?: () => void;
+    }>;
     const tryAnyway = buttons.find((b) => b.text === "Try Anyway");
     expect(tryAnyway).toBeDefined();
     tryAnyway?.onPress?.();
 
     // Allow login promise to reject and state to settle
     await waitFor(() => expect(mockLogin).toHaveBeenCalled());
-    await waitFor(() => expect(queryByTestId("instance-loading-closed.example")).toBeNull());
+    await waitFor(() =>
+      expect(queryByTestId("instance-loading-closed.example")).toBeNull(),
+    );
   });
 });
-
