@@ -1,5 +1,10 @@
 import { useReducer, useCallback, useEffect, useRef } from "react";
-import type { Post, TimelineOptions, FeedState, ViewportPosition } from "@types";
+import type {
+  Post,
+  TimelineOptions,
+  FeedState,
+  ViewportPosition,
+} from "@types";
 import type { mastodon } from "masto";
 import { getActiveClient, withRetry, RequestPriority } from "@lib/api/client";
 import { transformStatus } from "@lib/api/timeline";
@@ -9,17 +14,22 @@ import { FEED_CONFIG, UI_CONFIG } from "@/config";
 import { useAuth } from "@contexts/AuthContext";
 import {
   getDirectionalTimelinePaginator,
+  generateOlderId,
   type TimelinePaginator,
 } from "@lib/api/mastodonRequests";
+import { createFeedPostStore } from "@lib/feed/feedPostStore";
+import {
+  createFeedCacheController,
+  type FeedCacheController,
+} from "@lib/feed/feedCacheController";
 
 type TrimDirection = "dropFromEnd" | "dropFromStart";
-
 
 /**
  * Smart trimming that maintains buffer around viewport
  * Only trims posts far from viewport, in chunks
  */
-const trimPostsToLimit = (
+export const trimPostsToLimit = (
   posts: Post[],
   direction: TrimDirection = "dropFromEnd",
   viewportPosition?: ViewportPosition,
@@ -37,7 +47,6 @@ const trimPostsToLimit = (
   // If viewport position is provided, use smart trimming
   if (viewportPosition) {
     const { firstVisibleIndex, lastVisibleIndex } = viewportPosition;
-    const visibleRange = lastVisibleIndex - firstVisibleIndex;
     const bufferStart = Math.max(0, firstVisibleIndex - viewportBuffer);
     const bufferEnd = Math.min(posts.length, lastVisibleIndex + viewportBuffer);
 
@@ -47,44 +56,67 @@ const trimPostsToLimit = (
       return posts;
     }
 
-    // Determine which end to trim from based on viewport position
     const distanceFromStart = firstVisibleIndex;
     const distanceFromEnd = posts.length - lastVisibleIndex;
 
-    let trimmed: Post[];
+    let trimmed = posts;
+    let trimFromStart: boolean;
 
-    if (distanceFromStart < distanceFromEnd) {
-      // Viewport is closer to start, trim from end
-      // But only trim posts beyond the buffer
-      const trimFromEnd = Math.min(
-        overflow,
-        Math.max(0, posts.length - bufferEnd),
-        chunkSize,
-      );
-      trimmed = posts.slice(0, posts.length - trimFromEnd);
+    // Decide which side to trim based on explicit direction requested
+    // or by checking which side is furthest from the viewport.
+    if (direction === "dropFromStart") {
+      trimFromStart = true;
+    } else if (distanceFromStart < distanceFromEnd) {
+      trimFromStart = false; // dropFromEnd: viewport closer to start, trim from end
     } else {
-      // Viewport is closer to end, trim from start
-      // But only trim posts before the buffer
-      const trimFromStart = Math.min(
-        overflow,
-        Math.max(0, bufferStart),
-        chunkSize,
-      );
-      trimmed = posts.slice(trimFromStart);
+      trimFromStart = true; // dropFromEnd: viewport closer to end, trim from start
     }
 
-    // If still over threshold, trim more (but respect buffer)
-    if (trimmed.length > trimThreshold) {
-      const remainingOverflow = trimmed.length - bufferSize;
-      if (remainingOverflow > 0) {
-        const additionalTrim = Math.min(remainingOverflow, chunkSize);
-        if (distanceFromStart < distanceFromEnd) {
-          trimmed = trimmed.slice(0, trimmed.length - additionalTrim);
-        } else {
-          trimmed = trimmed.slice(additionalTrim);
-        }
+    // Apply trim while strictly maintaining the viewport buffer boundaries
+    if (trimFromStart) {
+      const maxAllowed = Math.max(0, bufferStart);
+      // Allow up to chunkSize * 2 (e.g. 40 posts) to be dropped in one cycle
+      const amount = Math.min(overflow, maxAllowed, chunkSize * 2);
+      if (amount > 0) {
+        trimmed = posts.slice(amount);
+      }
+    } else {
+      const maxAllowed = Math.max(0, posts.length - bufferEnd);
+      const amount = Math.min(overflow, maxAllowed, chunkSize * 2);
+      if (amount > 0) {
+        trimmed = posts.slice(0, posts.length - amount);
       }
     }
+
+    console.log(
+      `[trimPostsToLimit] direction=${direction}, before=${posts.length}, after=${trimmed.length}, trimFromStart=${trimFromStart}`,
+    );
+    // #region agent log
+    console.log("[dbg][H4] trim applied", {
+      direction,
+      before: posts.length,
+      after: trimmed.length,
+      trimFromStart,
+    });
+    fetch("http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "useFeed.ts:trimPostsToLimit",
+        message: "Trim applied",
+        data: {
+          direction,
+          before: posts.length,
+          after: trimmed.length,
+          trimFromStart,
+        },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        runId: "pre-fix",
+        hypothesisId: "H4",
+      }),
+    }).catch(() => {});
+    // #endregion agent log
 
     return trimmed;
   }
@@ -124,6 +156,8 @@ interface UseFeedOptions {
   limit?: number;
   cacheKey?: string;
   enableCache?: boolean;
+  /** Optional feed cache controller (for testing or when using intermediate cache layer) */
+  feedCacheController?: FeedCacheController;
 }
 
 // Action types for reducer
@@ -155,7 +189,7 @@ type FeedAction =
   | { type: "LOAD_MORE_ERROR"; error: string }
   | { type: "LOAD_NEWER_START" }
   | { type: "QUEUE_NEWER_POSTS"; newPosts: Post[] }
-  | { type: "LOAD_NEWER_ERROR"; error: string }
+  | { type: "LOAD_NEWER_ERROR"; error: string | null }
   | { type: "APPLY_PENDING_NEW_POSTS" }
   | { type: "REMOVE_POST"; postId: string }
   | { type: "SET_POSTS"; posts: Post[]; pendingNewPosts?: Post[] }
@@ -188,7 +222,10 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
         hasMore: action.hasMore,
         lastFetchedAt: Date.now(),
         error: null,
-        anchorPostId: action.anchorPostId !== undefined ? action.anchorPostId : state.anchorPostId,
+        anchorPostId:
+          action.anchorPostId !== undefined
+            ? action.anchorPostId
+            : state.anchorPostId,
       };
     case "LOAD_ERROR":
       return { ...state, isLoading: false, error: action.error };
@@ -216,11 +253,9 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "LOAD_MORE_SUCCESS":
       return {
         ...state,
-        posts: trimPostsToLimit(
-          action.posts,
-          action.trimDirection ?? "dropFromEnd",
-          state.viewportPosition,
-        ),
+        // Don't trim synchronously — let the new posts render first.
+        // Trimming is deferred to a subsequent idle frame via scheduleTrim().
+        posts: action.posts,
         pendingNewPosts: state.pendingNewPosts,
         isLoadingMore: false,
         hasMore: action.hasMore,
@@ -267,7 +302,11 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "SET_POSTS":
       return {
         ...state,
-        posts: trimPostsToLimit(action.posts, "dropFromEnd", state.viewportPosition),
+        posts: trimPostsToLimit(
+          action.posts,
+          "dropFromEnd",
+          state.viewportPosition,
+        ),
         pendingNewPosts: action.pendingNewPosts ?? state.pendingNewPosts,
       };
     case "LOAD_FROM_ANCHOR_START":
@@ -275,7 +314,11 @@ function feedReducer(state: FeedState, action: FeedAction): FeedState {
     case "LOAD_FROM_ANCHOR_SUCCESS":
       return {
         ...state,
-        posts: trimPostsToLimit(action.posts, "dropFromEnd", state.viewportPosition),
+        posts: trimPostsToLimit(
+          action.posts,
+          "dropFromEnd",
+          state.viewportPosition,
+        ),
         pendingNewPosts: [],
         isLoading: false,
         hasMore: action.hasMore,
@@ -328,8 +371,18 @@ export function useFeed(options: UseFeedOptions) {
     limit = FEED_CONFIG.DEFAULT_PAGE_SIZE,
     cacheKey,
     enableCache = true,
+    feedCacheController: injectedFeedCacheController,
   } = options;
   const { instance } = useAuth();
+
+  const feedStoreRef = useRef<ReturnType<typeof createFeedPostStore> | null>(
+    null,
+  );
+  const feedControllerRef = useRef<FeedCacheController | null>(null);
+  const prefetchOlderInFlightRef = useRef(false);
+  const prefetchNewerInFlightRef = useRef(false);
+  const lastPrefetchedOlderMaxIdRef = useRef<string | null>(null);
+  const lastPrefetchedNewerSinceIdRef = useRef<string | null>(null);
 
   const [state, dispatch] = useReducer(feedReducer, {
     posts: [],
@@ -346,22 +399,24 @@ export function useFeed(options: UseFeedOptions) {
   // Iterator refs for bidirectional pagination
   const olderPaginatorRef = useRef<TimelinePaginator | null>(null);
   const newerPaginatorRef = useRef<TimelinePaginator | null>(null);
-  
+
   // Track the last maxId/sinceId used to create iterators to detect when we've truly reached the end
   // If a freshly created iterator with the same maxId/sinceId returns empty, we've reached the end
   const lastOlderMaxIdRef = useRef<string | null>(null);
   const lastNewerSinceIdRef = useRef<string | null>(null);
-  
+
   // Track the last successfully fetched post ID to use for iterator creation
   // This ensures we continue from where we actually fetched, not where the trimmed array ends
   const lastFetchedOlderPostIdRef = useRef<string | null>(null);
   const lastFetchedNewerPostIdRef = useRef<string | null>(null);
-  
+
   // Track the lastFetchedOlderPostIdRef value at the time we created the current iterator
   // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (meaning no new posts
   // were fetched), which indicates we've truly reached the end
-  const lastFetchedOlderPostIdAtIteratorCreationRef = useRef<string | null>(null);
-  
+  const lastFetchedOlderPostIdAtIteratorCreationRef = useRef<string | null>(
+    null,
+  );
+
   // Track consecutive empty results (when an iterator returns empty then done) to detect true exhaustion
   // After multiple consecutive empty results with the same maxId, we mark as exhausted
   const consecutiveEmptyResultsRef = useRef<number>(0);
@@ -373,7 +428,7 @@ export function useFeed(options: UseFeedOptions) {
     older: 0,
   });
   const PROACTIVE_LOAD_THROTTLE_MS = 2000; // Minimum 2 seconds between proactive loads
-  
+
   // Track when jumpToPost was called to prevent proactive loading immediately after
   const lastJumpToPostRef = useRef<number>(0);
   const PROACTIVE_LOAD_DELAY_AFTER_JUMP_MS = 1000; // Wait 1 second after jumpToPost before allowing proactive loads
@@ -563,9 +618,131 @@ export function useFeed(options: UseFeedOptions) {
   });
   feedConfigRef.current = { feedType, feedId, limit, cacheKey, enableCache };
 
+  // Feed cache layer: use injected controller (tests) or create one when enableCache && cacheKey
+  useEffect(() => {
+    prefetchOlderInFlightRef.current = false;
+    prefetchNewerInFlightRef.current = false;
+    lastPrefetchedOlderMaxIdRef.current = null;
+    lastPrefetchedNewerSinceIdRef.current = null;
+
+    if (injectedFeedCacheController) {
+      feedControllerRef.current = injectedFeedCacheController;
+      return;
+    }
+    if (!enableCache || !cacheKey || feedType === "favourites" || feedType === "bookmarks") {
+      feedControllerRef.current = null;
+      feedStoreRef.current = null;
+      return;
+    }
+    const store = feedStoreRef.current ?? createFeedPostStore();
+    feedStoreRef.current = store;
+    const cacheServerPageSize = FEED_CONFIG.MAX_PAGE_SIZE;
+    feedControllerRef.current = createFeedCacheController(store, {
+      feedKey: cacheKey,
+      pageSize: cacheServerPageSize,
+      fetchLatest: () => fetchPosts({ limit: cacheServerPageSize }),
+      fetchContextAround: async (targetPostId: string) => {
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
+        const anchorStatus = await withRetry(
+          () => activeClient.client.v1.statuses.$select(targetPostId).fetch(),
+          RequestPriority.NORMAL,
+          `status_${targetPostId}`,
+        );
+        const context = await withRetry(
+          () =>
+            activeClient.client.v1.statuses
+              .$select(targetPostId)
+              .context.fetch(),
+          RequestPriority.NORMAL,
+          `context_${targetPostId}`,
+        );
+        const anchorPost = transformStatus(anchorStatus);
+        const ancestors = context.ancestors.map(transformStatus);
+        const descendants = context.descendants.map(transformStatus);
+        return [...descendants.reverse(), anchorPost, ...ancestors];
+      },
+      getOlderPaginator: (maxId: string, pageLimit: number) => {
+        // Warning: activeClient is requested asynchronously but getOlderPaginator returns immediately
+        // The iterator implementation inside mastodonRequests handles lazy resolution natively
+        // BUT we must supply the active client synchronously here. 
+        // We will fetch it before returning the paginator wrapper.
+        let activeClient: any = null;
+        const fetchClientWrapper = async () => {
+           if (!activeClient) activeClient = await getActiveClient();
+           if (!activeClient) throw new Error("No active client");
+           return activeClient;
+        };
+        
+        // Return an iterator adapter that resolves the client first
+        return {
+           async next() {
+              const clientObj = await fetchClientWrapper();
+              // Create paginator lazily once client is ready, store it on the adapter
+              if (!(this as any)._internalPaginator) {
+                 (this as any)._internalPaginator = getDirectionalTimelinePaginator(
+                    clientObj.client,
+                    feedType,
+                    feedId,
+                    "older",
+                    { maxId, limit: pageLimit }
+                 );
+              }
+              const result = await withRetry(async () => {
+                 return await (this as any)._internalPaginator.next();
+              }, RequestPriority.LOW);
+              
+              if (result.value) {
+                 result.value = result.value.map(transformStatus);
+              }
+              return result;
+           }
+        };
+      },
+      getNewerPaginator: (sinceId: string, pageLimit: number) => {
+        let activeClient: any = null;
+        const fetchClientWrapper = async () => {
+           if (!activeClient) activeClient = await getActiveClient();
+           if (!activeClient) throw new Error("No active client");
+           return activeClient;
+        };
+        
+        return {
+           async next() {
+              const clientObj = await fetchClientWrapper();
+              if (!(this as any)._internalPaginator) {
+                 (this as any)._internalPaginator = getDirectionalTimelinePaginator(
+                    clientObj.client,
+                    feedType,
+                    feedId,
+                    "newer",
+                    { sinceId, limit: pageLimit }
+                 );
+              }
+              const result = await withRetry(async () => {
+                 return await (this as any)._internalPaginator.next();
+              }, RequestPriority.LOW);
+              
+              if (result.value) {
+                 result.value = result.value.map(transformStatus);
+              }
+              return result;
+           }
+        };
+      },
+    });
+  }, [
+    enableCache,
+    cacheKey,
+    injectedFeedCacheController,
+    fetchPosts,
+    feedType,
+    feedId,
+  ]);
+
   /**
-   * Initial load - try cache first, then fetch
-   * This function is NOT in useEffect dependencies to avoid infinite loops
+   * Initial load - always request latest from server first (no cache as initial source).
+   * When using feed cache layer, controller.getInitialSlice({ limit }) does fetchLatest and populates store.
    */
   const loadFeed = useCallback(async () => {
     if (!instance) {
@@ -578,62 +755,82 @@ export function useFeed(options: UseFeedOptions) {
       dispatch({ type: "LOAD_START" });
 
       const config = feedConfigRef.current;
+      const controller = feedControllerRef.current;
 
-      // Try loading from cache first
-      if (config.enableCache && config.cacheKey) {
-        try {
-          const cached = await storageService.getCachedPosts(config.cacheKey);
-          if (cached && cached.length > 0) {
-            const isValid = await storageService.isCacheValid(
-              config.cacheKey,
-              CACHE_EXPIRATION.FEED,
-            );
-            if (isValid) {
-              console.log(`[useFeed] load CACHED: ${cached.length} posts`);
-              dispatch({
-                type: "LOAD_SUCCESS",
-                posts: trimPostsToLimit(cached, "dropFromEnd", state.viewportPosition),
-                hasMore: true,
-                anchorPostId: null,
-              });
-
-              // Fetch fresh data in background to validate cache freshness
-              // Note: We don't update the cache here to avoid overwriting the full
-              // cached feed with just the top 20 posts. Cache will update on next load.
-              fetchPosts()
-                .then((posts) => {
+      if (controller) {
+        const store = feedStoreRef.current;
+        if (store && config.enableCache && config.cacheKey) {
+          try {
+            const existingPosts = await store.getAllPosts(config.cacheKey);
+            if (existingPosts.length === 0) {
+              const cached = await storageService.getCachedPosts(config.cacheKey);
+              if (cached && cached.length > 0) {
+                const isValid = await storageService.isCacheValid(
+                  config.cacheKey,
+                  CACHE_EXPIRATION.FEED,
+                );
+                if (isValid) {
+                  await store.addPosts(config.cacheKey, cached);
                   console.log(
-                    `[useFeed] load BACKGROUND: ${posts.length} posts (freshness check)`,
+                    "[useFeed] Hydrated feedPostStore with " + cached.length + " posts from cross-session storage",
                   );
-                })
-                .catch((error) => {
-                  console.error("[useFeed] Background fetch error:", error);
-                });
-
-              return;
+                }
+              }
             }
+          } catch (err) {
+            console.error("[useFeed] Error hydrating cache:", err);
           }
-        } catch (error) {
-          console.error("Error loading from cache:", error);
         }
+
+        const posts = await controller.getInitialSlice({ limit: config.limit });
+        const boundedPosts = trimPostsToLimit(
+          posts,
+          "dropFromEnd",
+          state.viewportPosition,
+        );
+        const hasMore = posts.length > 0;
+        console.log(
+          `[useFeed] load CACHE_LAYER: ${posts.length} posts, hasMore=${hasMore}`,
+        );
+        dispatch({
+          type: "LOAD_SUCCESS",
+          posts: boundedPosts,
+          hasMore,
+          anchorPostId: null,
+        });
+        return;
       }
 
-      // No cache, fetch from API
-      console.log("[useFeed] load NO CACHE, fetching from API");
+      console.log("[useFeed] load NO CACHE LAYER, fetching from API");
       const posts = await fetchPosts();
-      const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
+      const boundedPosts = trimPostsToLimit(
+        posts,
+        "dropFromEnd",
+        state.viewportPosition,
+      );
       const hasMore = posts.length > 0;
-
       console.log(
         `[useFeed] load API: ${posts.length} posts, hasMore=${hasMore}`,
       );
-      dispatch({ type: "LOAD_SUCCESS", posts: boundedPosts, hasMore, anchorPostId: null });
+      dispatch({
+        type: "LOAD_SUCCESS",
+        posts: boundedPosts,
+        hasMore,
+        anchorPostId: null,
+      });
 
-      // Save to cache
       if (config.enableCache && config.cacheKey) {
-        await storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          await storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading feed:", error);
@@ -642,35 +839,57 @@ export function useFeed(options: UseFeedOptions) {
         error: error instanceof Error ? error.message : "Failed to load feed",
       });
     }
-  }, [instance, fetchPosts]); // Only depend on instance and fetchPosts
+  }, [instance, fetchPosts]);
 
   /**
    * Refresh - pull to refresh
-   * Resets iterators and fetches fresh posts from the top
+   * Resets iterators and fetches fresh posts from the top (same as initial load with no target)
    */
   const refresh = useCallback(async () => {
     try {
       console.log("[useFeed] refresh START");
       dispatch({ type: "REFRESH_START" });
 
-      // Reset iterators to start fresh
       resetIterators();
+      lastPrefetchedOlderMaxIdRef.current = null;
+      lastPrefetchedNewerSinceIdRef.current = null;
+
+      const config = feedConfigRef.current;
+      const controller = feedControllerRef.current;
+
+      if (controller) {
+        const posts = await controller.getInitialSlice({ limit: config.limit });
+        const boundedPosts = trimPostsToLimit(
+          posts,
+          "dropFromEnd",
+          state.viewportPosition,
+        );
+        const hasMore = posts.length > 0;
+        dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
+        return;
+      }
 
       const posts = await fetchPosts();
-      const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
-      const hasMore = posts.length > 0;
-
-      console.log(
-        `[useFeed] refresh COMPLETE: ${posts.length} posts, hasMore=${hasMore}`,
+      const boundedPosts = trimPostsToLimit(
+        posts,
+        "dropFromEnd",
+        state.viewportPosition,
       );
+      const hasMore = posts.length > 0;
       dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
 
-      // Save to cache
-      const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
-        await storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          await storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error refreshing feed:", error);
@@ -685,20 +904,20 @@ export function useFeed(options: UseFeedOptions) {
   /**
    * Load more - pagination (older posts)
    * Uses iterator-based approach for reliable pagination
-   * 
+   *
    * IMPORTANT: Iterator lifecycle and recreation strategy
-   * 
+   *
    * Masto.js iterators paginate through a specific range defined by maxId.
    * When an iterator exhausts (returns done: true), it means that particular
    * range is done, not that the entire feed is exhausted.
-   * 
+   *
    * Strategy:
    * 1. On first call, create iterator with maxId from oldest post
    * 2. Call iterator.next() to get next page
    * 3. When iterator exhausts, reset the iterator ref to null
    * 4. On next loadMore() call, create NEW iterator with updated maxId
    *    (based on the new oldest post after the previous batch was loaded)
-   * 
+   *
    * This allows continuous pagination through the entire feed by creating
    * new iterators with updated pagination parameters when needed.
    */
@@ -707,7 +926,6 @@ export function useFeed(options: UseFeedOptions) {
       `[useFeed] loadMore CALLED: hasMore=${state.hasMore}, isLoadingMore=${state.isLoadingMore}, postsCount=${state.posts.length}`,
     );
 
-    // Guard checks with detailed logging
     if (state.posts.length === 0) {
       console.log("[useFeed] loadMore BLOCKED: No posts yet");
       return;
@@ -722,6 +940,102 @@ export function useFeed(options: UseFeedOptions) {
 
     if (state.isLoadingMore) {
       console.log("[useFeed] loadMore BLOCKED: Already loading");
+      return;
+    }
+
+    const controller = feedControllerRef.current;
+    if (controller) {
+      try {
+        dispatch({ type: "LOAD_MORE_START" });
+        const config = feedConfigRef.current;
+        const oldestId = state.posts[state.posts.length - 1].id;
+        let olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+        let didRetryFromEndOfCache = false;
+
+        // Cache empty for this boundary: either server was marked exhausted (retry once) or we need first prefetch
+        if (olderPosts.length === 0) {
+          if (controller.isOlderServerExhausted()) {
+            controller.clearOlderServerExhausted();
+            await controller.prefetchOlderPage(oldestId);
+            olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+            didRetryFromEndOfCache = true;
+          } else if (
+            !prefetchOlderInFlightRef.current &&
+            lastPrefetchedOlderMaxIdRef.current !== oldestId
+          ) {
+            // No older posts in cache yet; fetch one page now so this loadMore returns results
+            lastPrefetchedOlderMaxIdRef.current = oldestId;
+            prefetchOlderInFlightRef.current = true;
+            await controller
+              .prefetchOlderPage(oldestId)
+              .catch((err) => {
+                console.error("[useFeed] prefetchOlderPage error:", err);
+                if (lastPrefetchedOlderMaxIdRef.current === oldestId) {
+                  lastPrefetchedOlderMaxIdRef.current = null;
+                }
+              })
+              .finally(() => {
+                prefetchOlderInFlightRef.current = false;
+              });
+            olderPosts = await controller.getOlderSlice(oldestId, config.limit);
+          }
+        }
+
+        const existingIds = new Set(state.posts.map((p) => p.id));
+        const uniqueNew = olderPosts.filter((p) => !existingIds.has(p.id));
+        const updatedPosts = [...state.posts, ...uniqueNew];
+        if (updatedPosts.length > UI_CONFIG.TRIM_THRESHOLD) {
+          console.log(
+            `[useFeed] loadMore CACHE: older=${olderPosts.length}, unique=${uniqueNew.length}, total=${updatedPosts.length} (trim deferred)`,
+          );
+        }
+        const exhausted = controller.isOlderServerExhausted();
+        const hasMore =
+          uniqueNew.length > 0
+            ? true
+            : didRetryFromEndOfCache
+              ? false
+              : exhausted
+                ? true
+                : true; // Keep true when cache was empty but server not exhausted (e.g. prefetch failed)
+        dispatch({
+          type: "LOAD_MORE_SUCCESS",
+          posts: updatedPosts,
+          hasMore,
+        });
+        // Background prefetch next page when we have posts and more may exist
+        const nextOldestId =
+          uniqueNew.length > 0 ? uniqueNew[uniqueNew.length - 1].id : oldestId;
+        const shouldPrefetchOlder =
+          uniqueNew.length > 0 &&
+          !controller.isOlderServerExhausted() &&
+          !prefetchOlderInFlightRef.current &&
+          lastPrefetchedOlderMaxIdRef.current !== nextOldestId;
+        if (shouldPrefetchOlder) {
+          lastPrefetchedOlderMaxIdRef.current = nextOldestId;
+          prefetchOlderInFlightRef.current = true;
+          controller
+            .prefetchOlderPage(nextOldestId)
+            .catch((err) => {
+              console.error("[useFeed] prefetchOlderPage error:", err);
+              if (lastPrefetchedOlderMaxIdRef.current === nextOldestId) {
+                lastPrefetchedOlderMaxIdRef.current = null;
+              }
+            })
+            .finally(() => {
+              prefetchOlderInFlightRef.current = false;
+            });
+        }
+      } catch (error) {
+        console.error("[useFeed] Error loading more posts:", error);
+        dispatch({
+          type: "LOAD_MORE_ERROR",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to load more posts",
+        });
+      }
       return;
     }
 
@@ -742,43 +1056,34 @@ export function useFeed(options: UseFeedOptions) {
         }
 
         const { client } = activeClient;
-        
+
         // Use the last successfully fetched post ID if available, otherwise use the oldest post
         // This ensures we continue from where we actually fetched, not from the trimmed array
-        const maxId = lastFetchedOlderPostIdRef.current ?? state.posts[state.posts.length - 1].id;
-        
+        const maxId =
+          lastFetchedOlderPostIdRef.current ??
+          state.posts[state.posts.length - 1].id;
+
         // Track the lastFetchedOlderPostIdRef value at iterator creation time
         // This allows us to detect if lastFetchedOlderPostIdRef hasn't changed (no new posts fetched)
         const lastFetchedAtCreation = lastFetchedOlderPostIdRef.current;
-        
+
         // Store the previous value BEFORE updating the ref (for logging and comparison)
-        const previousLastFetched = lastFetchedOlderPostIdAtIteratorCreationRef.current;
-        
+        const previousLastFetched =
+          lastFetchedOlderPostIdAtIteratorCreationRef.current;
+
         // Check if we're retrying with the same lastFetched value BEFORE updating the ref
-        // This means no new posts were fetched since the last iterator was created
-        const isRetryingWithSameLastFetched = previousLastFetched !== null &&
-                                              previousLastFetched === lastFetchedAtCreation;
-        
-        // If we're using the same maxId again, increment the consecutive empty results counter
-        // Otherwise, reset it (we got new posts, so reset the counter)
-        if (isRetryingWithSameLastFetched) {
-          consecutiveEmptyResultsRef.current += 1;
-        } else {
-          consecutiveEmptyResultsRef.current = 0;
-        }
-        
-        // Update the ref AFTER the comparison
-        lastFetchedOlderPostIdAtIteratorCreationRef.current = lastFetchedAtCreation;
-        
+        // With Native Iterators, we don't attempt to track retry conditions directly on iterator boundaries anymore
+        // since the internal paginator natively guarantees gap fulfillment or terminates via Link exhaustion natively.
+        // We will trigger our fallback leap exclusively at the point of native Link exhaustion result.done=true.
+
         // Update the maxId we're using for this iterator
         lastOlderMaxIdRef.current = maxId;
 
         console.log(
-          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId} (lastFetched=${lastFetchedAtCreation ?? 'none'}, previousLastFetched=${previousLastFetched ?? 'none'}, retryingWithSame=${isRetryingWithSameLastFetched})`,
+          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"})`,
         );
 
-        // Create a new iterator with maxId from the last fetched post (or oldest if none)
-        // This iterator will paginate through posts older than this maxId
+        // Create a new iterator with maxId ONLY on the very first initialization or after a gap jump
         olderPaginatorRef.current = getDirectionalTimelinePaginator(
           client,
           config.feedType,
@@ -786,10 +1091,7 @@ export function useFeed(options: UseFeedOptions) {
           "older",
           { maxId, limit: config.limit },
         );
-        
-        // Store the retry flag for use when checking iterator results (across function calls)
-        // This flag persists on the paginator object, so we can check it even after multiple next() calls
-        (olderPaginatorRef.current as any)._isRetryingWithSameLastFetched = isRetryingWithSameLastFetched;
+
         // Track if this is the first next() call on this iterator (only mark as exhausted on first call)
         (olderPaginatorRef.current as any)._nextCallCount = 0;
       }
@@ -799,31 +1101,29 @@ export function useFeed(options: UseFeedOptions) {
       console.log("[useFeed] loadMore: Calling iterator.next()");
 
       // Track the call count for this iterator (to detect first call)
-      const nextCallCount = ((olderPaginatorRef.current as any)?._nextCallCount ?? 0) + 1;
+      const nextCallCount =
+        ((olderPaginatorRef.current as any)?._nextCallCount ?? 0) + 1;
       (olderPaginatorRef.current as any)._nextCallCount = nextCallCount;
       const isFirstCall = nextCallCount === 1;
 
       const result = await olderPaginatorRef.current.next();
 
-      // Handle iterator exhaustion
-      // IMPORTANT: When an iterator returns done: true, it means that particular iterator's
-      // range is exhausted, NOT the entire feed. We should reset the iterator and keep
-      // hasMore=true to allow creating a new iterator on the next call.
-      // However, if this iterator was created with retryingWithSame=true (meaning we're
-      // retrying with the same maxId), then we've truly reached the end.
       if (result.done) {
-        // Check if we're retrying with the same lastFetched value
-        // If so, this iterator was created with the same maxId as the previous one,
-        // which means no new posts were fetched. Mark as exhausted.
-        const paginatorFlag = (olderPaginatorRef.current as any)?._isRetryingWithSameLastFetched;
-        const isRetryingWithSameLastFetched = paginatorFlag === true;
+        console.log(
+          `[useFeed] loadMore: Native Iterator done (Link header exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}`,
+        );
+        
+        // Since the native iterator naturally exhausted, we must initiate gap jumping as a fallback.
+        consecutiveEmptyResultsRef.current++;
+        olderPaginatorRef.current = null; // Destroy the exhausted native iterator
 
-        console.log(`[useFeed] loadMore: Iterator done (range exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}, resetting to allow new iterator`);
-        // Check if we've had too many consecutive empty results (iterator returns empty then done)
-        // with the same maxId - this indicates true exhaustion
-        if (consecutiveEmptyResultsRef.current >= MAX_CONSECUTIVE_EMPTY_RESULTS) {
-          console.log(`[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty results (>= ${MAX_CONSECUTIVE_EMPTY_RESULTS}), truly exhausted`);
-          olderPaginatorRef.current = null;
+        const MAX_EMPTY_JUMPS = 5;
+        if (
+          consecutiveEmptyResultsRef.current >= MAX_EMPTY_JUMPS
+        ) {
+          console.log(
+            `[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty leaps (>= ${MAX_EMPTY_JUMPS}), truly exhausted`,
+          );
           consecutiveEmptyResultsRef.current = 0;
           dispatch({
             type: "LOAD_MORE_SUCCESS",
@@ -832,15 +1132,47 @@ export function useFeed(options: UseFeedOptions) {
           });
           return;
         }
-        // Reset iterator ref to null to allow recreation with updated maxId on next call
-        // Keep hasMore=true - allow iterators to continue until we hit the consecutive empty threshold
-        olderPaginatorRef.current = null;
+
+        // If the feed is completely opaque, we cannot use ID jumping math. It is truly exhausted.
+        if (config.feedType === "favourites" || config.feedType === "bookmarks") {
+           console.log(`[useFeed] loadMore: Native Link header for opaque feed exhausted. Feed: ${config.feedType}`);
+           consecutiveEmptyResultsRef.current = 0;
+           dispatch({
+             type: "LOAD_MORE_SUCCESS",
+             posts: state.posts,
+             hasMore: false,
+           });
+           return;
+        }
+
+        const jumpHours = Math.pow(2, consecutiveEmptyResultsRef.current - 1);
+        const jumpMs = jumpHours * 60 * 60 * 1000;
+        const currentMaxId = lastOlderMaxIdRef.current || "";
+        const jumpedMaxId = generateOlderId(currentMaxId, jumpMs);
+        console.log(`[useFeed] loadMore: Gap detected! Fallback jumping back ${jumpHours} hours to ${jumpedMaxId}`);
+
+        // We jump the maxId directly, but we MUST keep hasMore=true so the next user scroll seamlessly builds
+        // the new iterator utilizing the modified maxId.
+        lastFetchedOlderPostIdRef.current = null; 
+        lastFetchedOlderPostIdAtIteratorCreationRef.current = null;
+        // Inject the synthetically jumped maxId back into the timeline state to force the next paginator creation to use it
+        if (state.posts.length > 0) {
+           const oldestRendered = state.posts[state.posts.length - 1];
+           // We technically mutate the post ID here just for the paginator's boundary, though it gets discarded internally
+           oldestRendered.id = jumpedMaxId;
+        }
+
         dispatch({
           type: "LOAD_MORE_SUCCESS",
           posts: state.posts,
-          hasMore: true, // Keep true to allow creating new iterator
+          hasMore: true, // Keep true to allow the next scroll to create a new gap-jumped iterator
         });
         return;
+      }
+
+      // If we got real posts naturally from the Link header, reset the consecutive jump tracking
+      if (result.value && result.value.length > 0) {
+        consecutiveEmptyResultsRef.current = 0;
       }
 
       // Check for empty array (but iterator not done yet)
@@ -852,7 +1184,9 @@ export function useFeed(options: UseFeedOptions) {
       // We do NOT mark as exhausted based on empty arrays alone - only when done: true
       // and retryingWithSame=true on the first call.
       if (!result.value || result.value.length === 0) {
-        console.log("[useFeed] loadMore: Iterator returned empty array (but not done), continuing with same iterator");
+        console.log(
+          "[useFeed] loadMore: Iterator returned empty array (but not done), continuing with same iterator",
+        );
         // Continue with the same iterator - don't reset it
         // The iterator will eventually return done: true when exhausted
         dispatch({
@@ -875,17 +1209,23 @@ export function useFeed(options: UseFeedOptions) {
         (post) => post && post.id && !existingIds.has(post.id),
       );
       const updatedPosts = [...state.posts, ...uniqueNewPosts];
-      const boundedPosts = trimPostsToLimit(updatedPosts, "dropFromStart", state.viewportPosition);
+      const boundedPosts = trimPostsToLimit(
+        updatedPosts,
+        "dropFromStart",
+        state.viewportPosition,
+      );
 
-        // Track the last successfully fetched post ID (the oldest post from the fetched batch)
-        // This ensures we continue from where we actually fetched, even if posts get trimmed
-        if (uniqueNewPosts.length > 0) {
-          const oldestFetchedPost = uniqueNewPosts[uniqueNewPosts.length - 1];
-          lastFetchedOlderPostIdRef.current = oldestFetchedPost.id;
-          // Reset consecutive empty results counter since we successfully fetched posts
-          consecutiveEmptyResultsRef.current = 0;
-          console.log(`[useFeed] loadMore: Tracking last fetched older post ID: ${lastFetchedOlderPostIdRef.current}`);
-        }
+      // Track the last successfully fetched post ID (the oldest post from the fetched batch)
+      // This ensures we continue from where we actually fetched, even if posts get trimmed
+      if (uniqueNewPosts.length > 0) {
+        const oldestFetchedPost = uniqueNewPosts[uniqueNewPosts.length - 1];
+        lastFetchedOlderPostIdRef.current = oldestFetchedPost.id;
+        // Reset consecutive empty results counter since we successfully fetched posts
+        consecutiveEmptyResultsRef.current = 0;
+        console.log(
+          `[useFeed] loadMore: Tracking last fetched older post ID: ${lastFetchedOlderPostIdRef.current}`,
+        );
+      }
 
       console.log(
         `[useFeed] loadMore RESULT: prevPosts=${state.posts.length}, fetched=${newPosts.length}, unique=${uniqueNewPosts.length}, total=${updatedPosts.length}`,
@@ -900,9 +1240,17 @@ export function useFeed(options: UseFeedOptions) {
 
       // Save to cache asynchronously
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading more posts:", error);
@@ -935,16 +1283,16 @@ export function useFeed(options: UseFeedOptions) {
   /**
    * Load newer posts (when scrolling up)
    * Uses iterator-based approach for reliable pagination
-   * 
+   *
    * IMPORTANT: Iterator lifecycle and recreation strategy
-   * 
+   *
    * Similar to loadMore(), but for newer posts using sinceId:
    * 1. On first call, create iterator with sinceId from newest post
    * 2. Call iterator.next() to get next page of newer posts
    * 3. When iterator exhausts, reset the iterator ref to null
    * 4. On next loadNewer() call, create NEW iterator with updated sinceId
    *    (based on the new newest post after the previous batch was loaded)
-   * 
+   *
    * This allows continuous pagination backward through the feed by creating
    * new iterators with updated pagination parameters when needed.
    */
@@ -953,7 +1301,6 @@ export function useFeed(options: UseFeedOptions) {
       `[useFeed] loadNewer CALLED: postsCount=${state.posts.length}, isLoadingMore=${state.isLoadingMore}`,
     );
 
-    // Guard checks
     if (state.posts.length === 0) {
       console.log("[useFeed] loadNewer BLOCKED: No posts yet");
       return;
@@ -961,6 +1308,52 @@ export function useFeed(options: UseFeedOptions) {
 
     if (state.isLoadingMore) {
       console.log("[useFeed] loadNewer BLOCKED: Already loading");
+      return;
+    }
+
+    const controller = feedControllerRef.current;
+    if (controller) {
+      try {
+        dispatch({ type: "LOAD_NEWER_START" });
+        const config = feedConfigRef.current;
+        const newestId = state.posts[0].id;
+        const newerPosts = await controller.getNewerSlice(
+          newestId,
+          config.limit,
+        );
+        const existingIds = new Set(state.posts.map((p) => p.id));
+        const uniqueNew = newerPosts.filter((p) => !existingIds.has(p.id));
+        if (uniqueNew.length === 0) {
+          dispatch({ type: "LOAD_NEWER_ERROR", error: null });
+          return;
+        }
+        dispatch({ type: "QUEUE_NEWER_POSTS", newPosts: uniqueNew });
+        const shouldPrefetchNewer =
+          !prefetchNewerInFlightRef.current &&
+          lastPrefetchedNewerSinceIdRef.current !== newestId;
+        if (shouldPrefetchNewer) {
+          lastPrefetchedNewerSinceIdRef.current = newestId;
+          prefetchNewerInFlightRef.current = true;
+          controller
+            .prefetchNewerPage(newestId)
+            .catch((err) => {
+              console.error("[useFeed] prefetchNewerPage error:", err);
+              if (lastPrefetchedNewerSinceIdRef.current === newestId) {
+                lastPrefetchedNewerSinceIdRef.current = null;
+              }
+            })
+            .finally(() => {
+              prefetchNewerInFlightRef.current = false;
+            });
+        }
+      } catch (error) {
+        console.error("[useFeed] Error loading newer posts:", error);
+        dispatch({
+          type: "LOAD_NEWER_ERROR",
+          error:
+            error instanceof Error ? error.message : "Failed to load newer",
+        });
+      }
       return;
     }
 
@@ -997,7 +1390,7 @@ export function useFeed(options: UseFeedOptions) {
           "newer",
           { sinceId, limit: config.limit },
         );
-        
+
         // Track the sinceId we used to create this iterator
         lastNewerSinceIdRef.current = sinceId;
       }
@@ -1011,9 +1404,19 @@ export function useFeed(options: UseFeedOptions) {
       // Same strategy as loadMore: distinguish between done: true vs empty array
       if (result.done) {
         console.log("[useFeed] loadNewer: Iterator done (truly exhausted)");
-        // Reset iterator ref to null to allow recreation with updated params on next call
+        
+        // Exclude completely opaque feeds from gap jumping (favourites/bookmarks cannot synthesize older IDs)
+        if (config.feedType === "favourites" || config.feedType === "bookmarks") {
+           console.log(`[useFeed] loadNewer: Native Link header for opaque feed exhausted. Feed: ${config.feedType}`);
+           newerPaginatorRef.current = null;
+           dispatch({ type: "LOAD_NEWER_ERROR", error: null });
+           return;
+        }
+
+        // TODO: We could implement `generateNewerId` here eventually if we wanted ascending gap jumps, 
+        // but typically finding *newer* posts doesn't suffer from gaps since they are fresh. 
+        // For now, if moving forward natively exhausts, we simply destroy the iterator.
         newerPaginatorRef.current = null;
-        // Don't dispatch if no new posts - prevents unnecessary re-render
         dispatch({ type: "LOAD_NEWER_ERROR", error: null });
         return;
       }
@@ -1025,7 +1428,9 @@ export function useFeed(options: UseFeedOptions) {
       // Only reset the iterator when it returns done: true, which indicates
       // that particular pagination range is exhausted.
       if (!result.value || result.value.length === 0) {
-        console.log("[useFeed] loadNewer: Iterator returned empty array (but not done), continuing with same iterator");
+        console.log(
+          "[useFeed] loadNewer: Iterator returned empty array (but not done), continuing with same iterator",
+        );
         // Continue with the same iterator - don't reset it
         // The iterator will eventually return done: true when exhausted
         // Don't dispatch if no new posts - prevents unnecessary re-render
@@ -1055,10 +1460,7 @@ export function useFeed(options: UseFeedOptions) {
         return;
       }
 
-      const pendingSnapshot = [
-        ...uniqueNewPosts,
-        ...state.pendingNewPosts,
-      ];
+      const pendingSnapshot = [...uniqueNewPosts, ...state.pendingNewPosts];
       const boundedSnapshot = trimPostsToLimit(
         [...pendingSnapshot, ...state.posts],
         "dropFromEnd",
@@ -1074,9 +1476,17 @@ export function useFeed(options: UseFeedOptions) {
 
       // Save to cache asynchronously
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, boundedSnapshot)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, boundedSnapshot)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading newer posts:", error);
@@ -1189,7 +1599,11 @@ export function useFeed(options: UseFeedOptions) {
 
         // Display target at top, followed by older posts
         const posts = [targetPost, ...olderPosts];
-        const boundedPosts = trimPostsToLimit(posts, "dropFromEnd", state.viewportPosition);
+        const boundedPosts = trimPostsToLimit(
+          posts,
+          "dropFromEnd",
+          state.viewportPosition,
+        );
 
         console.log(
           `[useFeed] jumpToPost COMPLETE: total=${posts.length} posts`,
@@ -1206,15 +1620,23 @@ export function useFeed(options: UseFeedOptions) {
         // from interfering with the initial display
         // The iterators will be re-initialized when loadMore/loadNewer are called
         resetIterators();
-        
+
         // Mark that we just jumped to a post to prevent immediate proactive loading
         lastJumpToPostRef.current = Date.now();
 
         // Save to cache
         if (config.enableCache && config.cacheKey) {
-          await storageService
-            .saveCachedPosts(config.cacheKey, boundedPosts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
+          const store = feedStoreRef.current;
+          const cacheKey = config.cacheKey;
+          if (store) {
+            store.getAllPosts(cacheKey).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          } else {
+            await storageService
+              .saveCachedPosts(cacheKey, boundedPosts)
+              .catch((err) => console.error("[useFeed] Cache save error:", err));
+          }
         }
       } catch (error) {
         console.error("[useFeed] Error jumping to post:", error);
@@ -1246,8 +1668,7 @@ export function useFeed(options: UseFeedOptions) {
 
   /**
    * Load feed from a specific anchor post
-   * Fetches the post and surrounding context (ancestors/descendants)
-   * This eliminates the need for scroll position estimation
+   * When using feed cache layer: check cache first; if target in cache use slice (no server); else fetch context from server
    */
   const loadFromAnchor = useCallback(
     async (postId: string) => {
@@ -1255,48 +1676,45 @@ export function useFeed(options: UseFeedOptions) {
         console.log(`[useFeed] loadFromAnchor START: postId=${postId}`);
         dispatch({ type: "LOAD_FROM_ANCHOR_START" });
 
-        // Reset iterators to clear old pagination state
         resetIterators();
 
-        const activeClient = await getActiveClient();
-        if (!activeClient) {
-          throw new Error("No active client");
+        const config = feedConfigRef.current;
+        const controller = feedControllerRef.current;
+
+        if (controller) {
+          const posts = await controller.getInitialSlice({
+            targetPostId: postId,
+            limit: config.limit,
+            contextSize: 10,
+          });
+          dispatch({
+            type: "LOAD_FROM_ANCHOR_SUCCESS",
+            posts,
+            hasMore: posts.length > 0,
+            anchorPostId: postId,
+          });
+          resetIterators();
+          return;
         }
 
+        const activeClient = await getActiveClient();
+        if (!activeClient) throw new Error("No active client");
         const { client } = activeClient;
 
-        // Fetch the anchor post itself
         const anchorStatus = await withRetry(
           () => client.v1.statuses.$select(postId).fetch(),
           RequestPriority.NORMAL,
           `status_${postId}`,
         );
         const anchorPost = transformStatus(anchorStatus);
-
-        console.log(`[useFeed] loadFromAnchor: Fetched anchor post ${postId}`);
-
-        // Fetch context (ancestors and descendants)
         const context = await withRetry(
           () => client.v1.statuses.$select(postId).context.fetch(),
           RequestPriority.NORMAL,
           `context_${postId}`,
         );
-
-        console.log(
-          `[useFeed] loadFromAnchor: Fetched context - ${context.ancestors.length} ancestors, ${context.descendants.length} descendants`,
-        );
-
-        // Transform ancestors and descendants to Post type
         const ancestors = context.ancestors.map(transformStatus);
         const descendants = context.descendants.map(transformStatus);
-
-        // Combine in chronological order (newest first)
-        // descendants are newer than anchor, ancestors are older
         const posts = [...descendants.reverse(), anchorPost, ...ancestors];
-
-        console.log(
-          `[useFeed] loadFromAnchor COMPLETE: total=${posts.length} posts`,
-        );
 
         dispatch({
           type: "LOAD_FROM_ANCHOR_SUCCESS",
@@ -1304,16 +1722,20 @@ export function useFeed(options: UseFeedOptions) {
           hasMore: ancestors.length > 0,
           anchorPostId: postId,
         });
-
-        // Reset iterators after loading from anchor
         resetIterators();
 
-        // Save to cache
-        const config = feedConfigRef.current;
         if (config.enableCache && config.cacheKey) {
-          await storageService
-            .saveCachedPosts(config.cacheKey, posts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
+          const store = feedStoreRef.current;
+          const cacheKey = config.cacheKey;
+          if (store) {
+            store.getAllPosts(cacheKey).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          } else {
+            await storageService
+              .saveCachedPosts(cacheKey, posts)
+              .catch((err) => console.error("[useFeed] Cache save error:", err));
+          }
         }
       } catch (error) {
         console.error("[useFeed] Error loading from anchor:", error);
@@ -1340,10 +1762,20 @@ export function useFeed(options: UseFeedOptions) {
       // Update cache
       const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
-        const updatedPosts = state.posts.filter((post) => post.id !== postId);
-        storageService
-          .saveCachedPosts(config.cacheKey, updatedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.removePost(cacheKey, postId).then(() => {
+            return store.getAllPosts(cacheKey);
+          }).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          const updatedPosts = state.posts.filter((post) => post.id !== postId);
+          storageService
+            .saveCachedPosts(cacheKey, updatedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     },
     [state.posts],
@@ -1372,9 +1804,22 @@ export function useFeed(options: UseFeedOptions) {
 
       const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, updatedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          const targetPost = updatedPosts.find((p) => p.id === targetPostId || p.reblog?.id === targetPostId);
+          if (targetPost) {
+            store.addPosts(cacheKey, [targetPost]).then(() => {
+              return store.getAllPosts(cacheKey);
+            }).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          }
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, updatedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     },
     [state.posts, state.pendingNewPosts],
@@ -1394,9 +1839,51 @@ export function useFeed(options: UseFeedOptions) {
     [],
   );
 
+  // ── Deferred trimming ──────────────────────────────────────────────────
+  // Instead of trimming synchronously inside the reducer (which causes the
+  // grid to reflow in the same render frame as new posts), we schedule
+  // trimming after TRIM_IDLE_DELAY ms of scroll-idle. This lets the new
+  // posts render undisturbed, then trims from a quiet frame.
+  const trimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Only schedule trim if the post count exceeds the threshold
+    if (state.posts.length <= UI_CONFIG.TRIM_THRESHOLD) {
+      return;
+    }
+
+    // Clear any pending trim so each new load resets the idle clock
+    if (trimTimerRef.current) {
+      clearTimeout(trimTimerRef.current);
+    }
+
+    trimTimerRef.current = setTimeout(() => {
+      trimTimerRef.current = null;
+      const trimmed = trimPostsToLimit(
+        state.posts,
+        "dropFromStart",
+        state.viewportPosition,
+      );
+      if (trimmed.length < state.posts.length) {
+        console.log(
+          `[useFeed] DEFERRED TRIM: ${state.posts.length} → ${trimmed.length}`,
+        );
+        dispatch({ type: "SET_POSTS", posts: trimmed });
+      }
+    }, UI_CONFIG.TRIM_IDLE_DELAY);
+
+    return () => {
+      if (trimTimerRef.current) {
+        clearTimeout(trimTimerRef.current);
+        trimTimerRef.current = null;
+      }
+    };
+  }, [state.posts.length, state.viewportPosition]);
+
   return {
     ...state,
     pendingNewPosts: state.pendingNewPosts,
+    viewportPosition: state.viewportPosition,
     refresh,
     loadMore,
     loadNewer,

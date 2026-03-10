@@ -9,22 +9,22 @@
  */
 export interface MastodonPreferences {
   /** Default visibility for new posts */
-  'posting:default:visibility': 'public' | 'unlisted' | 'private' | 'direct';
+  "posting:default:visibility": "public" | "unlisted" | "private" | "direct";
 
   /** Mark media as sensitive by default */
-  'posting:default:sensitive': boolean;
+  "posting:default:sensitive": boolean;
 
   /** Default language for new posts (ISO 639-1 language code) */
-  'posting:default:language': string | null;
+  "posting:default:language": string | null;
 
   /** Default quote policy (Mastodon 4.5+) */
-  'posting:default:quote_policy'?: 'public' | 'followers' | 'nobody';
+  "posting:default:quote_policy"?: "public" | "followers" | "nobody";
 
   /** How to display media attachments */
-  'reading:expand:media': 'default' | 'show_all' | 'hide_all';
+  "reading:expand:media": "default" | "show_all" | "hide_all";
 
   /** Auto-expand content warnings/spoilers */
-  'reading:expand:spoilers': boolean;
+  "reading:expand:spoilers": boolean;
 }
 
 /**
@@ -65,7 +65,7 @@ export interface UpdateCredentialsParams {
   /** Source preferences (nested under 'source' in API) */
   source?: {
     /** Default post visibility */
-    privacy?: 'public' | 'unlisted' | 'private' | 'direct';
+    privacy?: "public" | "unlisted" | "private" | "direct";
 
     /** Mark media as sensitive by default */
     sensitive?: boolean;
@@ -74,7 +74,7 @@ export interface UpdateCredentialsParams {
     language?: string;
 
     /** Default quote policy */
-    quotePolicy?: 'public' | 'followers' | 'nobody';
+    quotePolicy?: "public" | "followers" | "nobody";
   };
 }
 
@@ -107,10 +107,10 @@ export interface ProfileFormData {
  * Preferences form state for account settings
  */
 export interface PreferencesFormData {
-  defaultVisibility: 'public' | 'unlisted' | 'private' | 'direct';
+  defaultVisibility: "public" | "unlisted" | "private" | "direct";
   defaultSensitive: boolean;
   defaultLanguage: string;
-  expandMedia: 'default' | 'show_all' | 'hide_all';
+  expandMedia: "default" | "show_all" | "hide_all";
   expandSpoilers: boolean;
   hideCollections: boolean;
   indexable: boolean;

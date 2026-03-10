@@ -240,12 +240,14 @@ describe("AuthContext - Account Switching Behavior", () => {
         },
       }));
 
-      mockStorageService.getAuthData.mockImplementation((instanceId: string) => {
-        if (instanceId === mockInstance1.id) {
-          return Promise.resolve(mockAuthData1);
-        }
-        return Promise.resolve(mockAuthData2);
-      });
+      mockStorageService.getAuthData.mockImplementation(
+        (instanceId: string) => {
+          if (instanceId === mockInstance1.id) {
+            return Promise.resolve(mockAuthData1);
+          }
+          return Promise.resolve(mockAuthData2);
+        },
+      );
 
       mockStorageService.switchInstance.mockResolvedValue(mockInstance2);
 

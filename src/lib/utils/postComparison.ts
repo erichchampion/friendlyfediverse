@@ -24,11 +24,3 @@ export function haveMediaAttachmentsChanged(
       media.url !== next[index]?.url || media.id !== next[index]?.id,
   );
 }
-
-
-
-
-
-
-
-

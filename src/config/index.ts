@@ -52,10 +52,11 @@ export const UI_CONFIG = {
   PAGINATION_THRESHOLD: 200, // px from bottom to trigger pagination (legacy, use PROACTIVE_LOAD_BUFFER_RATIO for viewport-based loading)
   PROACTIVE_LOAD_CHECK_INTERVAL: 1000, // ms - interval for checking visible posts changes for proactive loading
   // Proactive loading and buffer management
-  PROACTIVE_LOAD_BUFFER_RATIO: 2.0, // Load when 2 viewport heights from bottom
+  PROACTIVE_LOAD_BUFFER_RATIO: 4.0, // Load when 4 viewport heights from bottom (keeps viewport centered in buffer)
   POST_BUFFER_SIZE: 350, // Maximum posts to keep in buffer
-  TRIM_THRESHOLD: 350, // Start trimming when this many posts
+  TRIM_THRESHOLD: 400, // Start trimming when this many posts (50-post hysteresis above buffer size)
   TRIM_CHUNK_SIZE: 20, // Trim this many posts at a time
+  TRIM_IDLE_DELAY: 1500, // ms - wait for scroll deceleration to finish before trimming
   VIEWPORT_BUFFER_POSTS: 150, // Keep this many posts on each side of viewport
   // Grid view scroll positioning
   GRID_SCROLL_PADDING_MAX: 50, // Maximum padding offset in pixels for grid scroll positioning

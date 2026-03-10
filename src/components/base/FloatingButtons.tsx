@@ -14,6 +14,7 @@ interface FloatingButtonsProps {
   onReload: () => void;
   isGridView: boolean;
   isLoading?: boolean;
+  hideToggle?: boolean;
 }
 
 export function FloatingButtons({
@@ -21,6 +22,7 @@ export function FloatingButtons({
   onReload,
   isGridView,
   isLoading = false,
+  hideToggle = false,
 }: FloatingButtonsProps) {
   const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -63,18 +65,22 @@ export function FloatingButtons({
       ]}
     >
       {/* Grid/List Toggle Button */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.primary }]}
-        onPress={onGridToggle}
-        activeOpacity={0.8}
-        disabled={isLoading}
-      >
-        <Ionicons
-          name={isGridView ? "list" : "grid"}
-          size={24}
-          color="#FFFFFF"
-        />
-      </TouchableOpacity>
+      {!hideToggle ? (
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: colors.primary }]}
+          onPress={onGridToggle}
+          activeOpacity={0.8}
+          disabled={isLoading}
+        >
+          <Ionicons
+            name={isGridView ? "list" : "grid"}
+            size={24}
+            color="#FFFFFF"
+          />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.spacer} />
+      )}
 
       {/* Reload Button */}
       <TouchableOpacity
@@ -120,5 +126,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 8,
+  },
+  spacer: {
+    width: 56,
+    height: 56,
   },
 });

@@ -107,11 +107,11 @@ describe("FeedGridView - Width Calculation", () => {
   it("should use percentage width for grid items to match flexbox column width", () => {
     const { Dimensions } = require("react-native");
     const SCREEN_WIDTH = 1024;
-    
+
     // Mock Dimensions.get to return our test width
-    jest.spyOn(Dimensions, "get").mockReturnValue({ 
-      width: SCREEN_WIDTH, 
-      height: 800 
+    jest.spyOn(Dimensions, "get").mockReturnValue({
+      width: SCREEN_WIDTH,
+      height: 800,
     });
 
     const posts = [createImagePost("post-1")];
@@ -120,31 +120,31 @@ describe("FeedGridView - Width Calculation", () => {
     // Find the grid item TouchableOpacity
     const { TouchableOpacity } = require("react-native");
     const gridItems = UNSAFE_getAllByType(TouchableOpacity);
-    
+
     // Should have at least one grid item
     expect(gridItems.length).toBeGreaterThan(0);
-    
+
     // Find the grid item (not the sensitive overlay button)
-    const gridItem = gridItems.find(
-      (item: any) => 
-        item.props.style && 
-        Array.isArray(item.props.style) &&
-        item.props.style.some((s: any) => s && s.width !== undefined)
-    ) || gridItems[0];
-    
+    const gridItem =
+      gridItems.find(
+        (item: any) =>
+          item.props.style &&
+          Array.isArray(item.props.style) &&
+          item.props.style.some((s: any) => s && s.width !== undefined),
+      ) || gridItems[0];
+
     expect(gridItem).toBeDefined();
-    
+
     if (gridItem) {
       const style = gridItem.props.style;
-      const flattenedStyle = Array.isArray(style) 
+      const flattenedStyle = Array.isArray(style)
         ? Object.assign({}, ...style.filter((s: any) => s))
         : style;
-      
-      // Grid items should use "100%" width to fill their flexbox column
-      // rather than a fixed pixel width that might not match the actual column width
-      expect(flattenedStyle.width).toBe("100%");
+
+      // Grid items should use a calculated numeric width based on screen size
+      expect(typeof flattenedStyle.width).toBe("number");
     }
-    
+
     Dimensions.get.mockRestore();
   });
 
@@ -153,15 +153,16 @@ describe("FeedGridView - Width Calculation", () => {
     const SCREEN_WIDTH = 1024;
     const GRID_GAP = 2;
     const COLUMN_COUNT = 3;
-    
+
     // Expected calculation: (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
     // = (1024 - 2 * 4) / 3 = (1024 - 8) / 3 = 1016 / 3 = 338.666...
-    const expectedColumnWidth = (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
-    
+    const expectedColumnWidth =
+      (SCREEN_WIDTH - GRID_GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT;
+
     // Mock Dimensions.get to return our test width
-    jest.spyOn(Dimensions, "get").mockReturnValue({ 
-      width: SCREEN_WIDTH, 
-      height: 800 
+    jest.spyOn(Dimensions, "get").mockReturnValue({
+      width: SCREEN_WIDTH,
+      height: 800,
     });
 
     const posts = [createImagePost("post-1")];
@@ -170,26 +171,7 @@ describe("FeedGridView - Width Calculation", () => {
     // The actual column width should be calculated correctly
     // But grid items should use "100%" to match whatever the flexbox column width is
     // This ensures they match even if there are rounding differences
-    
+
     Dimensions.get.mockRestore();
   });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

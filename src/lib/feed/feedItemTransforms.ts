@@ -1,4 +1,4 @@
-import type { Post } from "@/types/post";
+import type { Post } from "@types";
 
 /**
  * Feed item types for virtual scroll with sticky headers

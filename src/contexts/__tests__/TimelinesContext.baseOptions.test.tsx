@@ -8,4 +8,3 @@ describe("TimelinesContext BASE_TIMELINE_OPTIONS", () => {
     expect(hasLocal).toBe(true);
   });
 });
-

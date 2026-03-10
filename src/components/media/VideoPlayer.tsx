@@ -92,11 +92,14 @@ export function VideoPlayer({
         player.play()?.catch?.((error) => {
           // Silently ignore autoplay errors - browsers block autoplay without user interaction
           // This is expected behavior and not a critical error
-          console.debug('Video autoplay blocked:', error?.message || error);
+          console.debug("Video autoplay blocked:", error?.message || error);
         });
       } catch (error) {
         // Catch synchronous errors
-        console.debug('Video autoplay blocked (sync):', error instanceof Error ? error.message : String(error));
+        console.debug(
+          "Video autoplay blocked (sync):",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     } else {
       player.pause();
@@ -131,7 +134,13 @@ export function VideoPlayer({
 
   // Auto-hide controls after 3 seconds if playing (list mode only)
   useEffect(() => {
-    if (isPlaying && shouldShowControls && mode === "list" && !showVolumeSlider && !isSeeking) {
+    if (
+      isPlaying &&
+      shouldShowControls &&
+      mode === "list" &&
+      !showVolumeSlider &&
+      !isSeeking
+    ) {
       const timer = setTimeout(() => setShowControls(false), 3000);
       return () => clearTimeout(timer);
     }
@@ -144,10 +153,13 @@ export function VideoPlayer({
     } else {
       try {
         player.play()?.catch?.((error) => {
-          console.debug('Video play failed:', error?.message || error);
+          console.debug("Video play failed:", error?.message || error);
         });
       } catch (error) {
-        console.debug('Video play failed (sync):', error instanceof Error ? error.message : String(error));
+        console.debug(
+          "Video play failed (sync):",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
     setShowControls(true);
@@ -165,25 +177,31 @@ export function VideoPlayer({
     }
   };
 
-  const handleVolumeChange = useCallback((newVolume: number) => {
-    const clampedVolume = Math.max(0, Math.min(1, newVolume));
-    setVolume(clampedVolume);
-    if (!isMuted && mode !== "grid") {
-      player.volume = clampedVolume;
-    }
-    setShowVolumeSlider(true);
-    // Reset hide timer
-    setTimeout(() => setShowVolumeSlider(false), 2000);
-  }, [isMuted, mode, player]);
+  const handleVolumeChange = useCallback(
+    (newVolume: number) => {
+      const clampedVolume = Math.max(0, Math.min(1, newVolume));
+      setVolume(clampedVolume);
+      if (!isMuted && mode !== "grid") {
+        player.volume = clampedVolume;
+      }
+      setShowVolumeSlider(true);
+      // Reset hide timer
+      setTimeout(() => setShowVolumeSlider(false), 2000);
+    },
+    [isMuted, mode, player],
+  );
 
-  const handleSeek = useCallback((position: number) => {
-    if (duration > 0) {
-      const clampedPosition = Math.max(0, Math.min(duration, position));
-      setSeekPosition(clampedPosition);
-      // Seek to the position in milliseconds
-      player.currentTime = clampedPosition * 1000;
-    }
-  }, [duration, player]);
+  const handleSeek = useCallback(
+    (position: number) => {
+      if (duration > 0) {
+        const clampedPosition = Math.max(0, Math.min(duration, position));
+        setSeekPosition(clampedPosition);
+        // Seek to the position in milliseconds
+        player.currentTime = clampedPosition * 1000;
+      }
+    },
+    [duration, player],
+  );
 
   const formatTime = (seconds: number) => {
     const totalSeconds = Math.floor(seconds);
@@ -207,7 +225,10 @@ export function VideoPlayer({
           const progressBarX = progressBarLayout.current.x;
           const progressBarWidth = progressBarLayout.current.width;
           const relativeX = pageX - progressBarX;
-          const progress = Math.max(0, Math.min(1, relativeX / progressBarWidth));
+          const progress = Math.max(
+            0,
+            Math.min(1, relativeX / progressBarWidth),
+          );
           const newTime = progress * duration;
           setSeekPosition(newTime);
         }
@@ -217,10 +238,13 @@ export function VideoPlayer({
           const { pageX } = evt.nativeEvent;
           const progressBarX = progressBarLayout.current.x;
           const progressBarWidth = progressBarLayout.current.width;
-          
+
           // Calculate progress from touch position
           const relativeX = pageX - progressBarX;
-          const progress = Math.max(0, Math.min(1, relativeX / progressBarWidth));
+          const progress = Math.max(
+            0,
+            Math.min(1, relativeX / progressBarWidth),
+          );
           const newTime = progress * duration;
           setSeekPosition(newTime);
         }
@@ -233,15 +257,21 @@ export function VideoPlayer({
           if (wasPlayingBeforeSeek.current) {
             try {
               player.play()?.catch?.((error) => {
-                console.debug('Video play after seek failed:', error?.message || error);
+                console.debug(
+                  "Video play after seek failed:",
+                  error?.message || error,
+                );
               });
             } catch (error) {
-              console.debug('Video play after seek failed (sync):', error instanceof Error ? error.message : String(error));
+              console.debug(
+                "Video play after seek failed (sync):",
+                error instanceof Error ? error.message : String(error),
+              );
             }
           }
         }
       },
-    })
+    }),
   ).current;
 
   const volumeSliderLayout = useRef({ x: 0, width: 100 });
@@ -278,7 +308,7 @@ export function VideoPlayer({
       onPanResponderRelease: () => {
         setTimeout(() => setShowVolumeSlider(false), 2000);
       },
-    })
+    }),
   ).current;
 
   const handleProgressBarLayout = (event: LayoutChangeEvent) => {
@@ -292,7 +322,7 @@ export function VideoPlayer({
       const { pageX } = event.nativeEvent;
       const progressBarX = progressBarLayout.current.x;
       const progressBarWidth = progressBarLayout.current.width;
-      
+
       const relativeX = pageX - progressBarX;
       const progress = Math.max(0, Math.min(1, relativeX / progressBarWidth));
       const newTime = progress * duration;
@@ -322,7 +352,7 @@ export function VideoPlayer({
           <VideoView
             player={player}
             style={styles.video}
-            contentFit="contain"
+            contentFit="cover"
             nativeControls={false}
           />
           {/* GIF indicator - should be visible in grid mode */}
@@ -373,11 +403,15 @@ export function VideoPlayer({
                     <View
                       style={[
                         styles.volumeSliderThumb,
-                        { left: `${Math.min(100, Math.max(0, volume * 100))}%` },
+                        {
+                          left: `${Math.min(100, Math.max(0, volume * 100))}%`,
+                        },
                       ]}
                     />
                   </View>
-                  <Text style={styles.volumeValue}>{Math.round(volume * 100)}%</Text>
+                  <Text style={styles.volumeValue}>
+                    {Math.round(volume * 100)}%
+                  </Text>
                 </View>
               </View>
             )}
@@ -457,7 +491,9 @@ export function VideoPlayer({
                     <View
                       style={[
                         styles.progressBarThumb,
-                        { left: `${Math.min(100, Math.max(0, displayProgress * 100))}%` },
+                        {
+                          left: `${Math.min(100, Math.max(0, displayProgress * 100))}%`,
+                        },
                       ]}
                     />
                   </View>
@@ -506,19 +542,14 @@ export function VideoPlayer({
         onRequestClose={handleExitFullScreen}
         statusBarTranslucent
       >
-        <View style={styles.fullScreenContainer}>
-          {videoContent}
-        </View>
+        <View style={styles.fullScreenContainer}>{videoContent}</View>
       </Modal>
     );
   }
 
   return (
     <View
-      style={[
-        mode === "grid" ? styles.containerGrid : styles.container,
-        style,
-      ]}
+      style={[mode === "grid" ? styles.containerGrid : styles.container, style]}
     >
       {videoContent}
     </View>

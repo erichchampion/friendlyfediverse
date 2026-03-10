@@ -59,6 +59,7 @@ jest.mock("@lib/api/mastodonRequests", () => ({
   getDirectionalTimelinePaginator: jest.fn(() => ({
     next: jest.fn().mockResolvedValue({ done: true, value: undefined }),
   })),
+  generateOlderId: jest.fn((id, ms) => id),
 }));
 jest.mock("@contexts/AuthContext", () => ({
   useAuth: () => ({
@@ -124,7 +125,9 @@ describe("useFeed memory cap", () => {
 
   it("trims after loadMore while keeping newest posts", async () => {
     const { getActiveClient } = require("@lib/api/client");
-    const { getDirectionalTimelinePaginator } = require("@lib/api/mastodonRequests");
+    const {
+      getDirectionalTimelinePaginator,
+    } = require("@lib/api/mastodonRequests");
 
     const firstPage = buildStatuses(40); // Newest -> oldest
     const mockList = createIterator(firstPage);
@@ -182,7 +185,9 @@ describe("useFeed memory cap", () => {
 
   it("drops oldest posts when applying newer posts beyond the cap", async () => {
     const { getActiveClient } = require("@lib/api/client");
-    const { getDirectionalTimelinePaginator } = require("@lib/api/mastodonRequests");
+    const {
+      getDirectionalTimelinePaginator,
+    } = require("@lib/api/mastodonRequests");
 
     const firstPage = buildStatuses(40); // Newest -> oldest
     const mockList = createIterator(firstPage);
@@ -241,4 +246,3 @@ describe("useFeed memory cap", () => {
     );
   });
 });
-

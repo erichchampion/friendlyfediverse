@@ -10,7 +10,7 @@ jest.mock('react-native-mmkv', () => {
   const stores = new Map();
 
   return {
-    MMKV: jest.fn(function({ id = 'default' } = {}) {
+    MMKV: jest.fn(function ({ id = 'default' } = {}) {
       if (!stores.has(id)) {
         stores.set(id, new Map());
       }
@@ -121,7 +121,7 @@ jest.mock('expo-image', () => ({
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const Reanimated = require('react-native-reanimated/mock');
-  Reanimated.default.call = () => {};
+  Reanimated.default.call = () => { };
   // Add missing functions for Reanimated 4.x
   Reanimated.useSharedValue = jest.fn((init) => ({ value: init }));
   Reanimated.useAnimatedStyle = jest.fn((style) => style);
@@ -142,6 +142,24 @@ jest.mock('react-native-gesture-handler', () => {
       })),
     },
     GestureDetector: ({ children }: any) => children,
+  };
+});
+
+// Mock react-native useWindowDimensions to prevent Invariant Violation outside providers
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  default: () => ({ width: 400, height: 800, scale: 1, fontScale: 1 }),
+}));
+
+// Mock react-native-safe-area-context to prevent invariant violations in child components
+jest.mock('react-native-safe-area-context', () => {
+  const inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  return {
+    SafeAreaProvider: jest.fn().mockImplementation(({ children }) => children),
+    SafeAreaConsumer: jest.fn().mockImplementation(({ children }) => children(inset)),
+    SafeAreaView: jest.fn().mockImplementation(({ children }) => children),
+    useSafeAreaInsets: jest.fn().mockImplementation(() => inset),
+    useSafeAreaFrame: jest.fn().mockImplementation(() => ({ x: 0, y: 0, width: 390, height: 844 })),
+    useWindowDimensions: jest.fn().mockImplementation(() => ({ width: 390, height: 844 })),
   };
 });
 
@@ -173,7 +191,7 @@ afterAll(() => {
   } catch (e) {
     // Ignore if module not available
   }
-  
+
   // Clean up RelationshipBatcher timers
   try {
     const { relationshipBatcher } = require('./src/lib/api/relationshipBatcher');
@@ -183,7 +201,7 @@ afterAll(() => {
   } catch (e) {
     // Ignore if module not available
   }
-  
+
   // Clear any remaining timers that might be keeping the process alive
   // This helps prevent "worker process has failed to exit gracefully" warnings
   jest.clearAllTimers();

@@ -5,8 +5,8 @@
 
 export interface AuthData {
   instanceUrl: string;
-  accountId: string;       // Mastodon account ID to associate auth with specific account
-  username: string;        // Username for identification
+  accountId: string; // Mastodon account ID to associate auth with specific account
+  username: string; // Username for identification
   clientId: string;
   clientSecret: string;
   accessToken: string;

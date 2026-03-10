@@ -27,7 +27,7 @@ export const flexWebConstraints = {
 /**
  * Web-specific grid container style
  * Uses flex instead of width to avoid React Native Web generating fixed-width classes
- * 
+ *
  * @param mode - "grid" or "list" mode
  * @returns Style object for web grid containers, empty object otherwise
  */
@@ -44,7 +44,7 @@ export const getWebGridContainerStyle = (mode: "grid" | "list") => {
 /**
  * Web-specific list mode container style
  * Ensures containers use percentage widths instead of calculated pixel widths
- * 
+ *
  * @param mode - "grid" or "list" mode
  * @returns Style object for web list containers, empty object otherwise
  */
@@ -62,7 +62,7 @@ export const getWebListContainerStyle = (mode: "grid" | "list") => {
 /**
  * Web-specific list mode media item style
  * Prevents React Native Web from calculating fixed widths based on content
- * 
+ *
  * @returns Style object for web list media items, empty object otherwise
  */
 export const getWebListItemStyle = () => {
@@ -75,4 +75,3 @@ export const getWebListItemStyle = () => {
   }
   return {};
 };
-

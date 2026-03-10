@@ -7,14 +7,19 @@ import {
   Platform,
 } from "react-native";
 import { useState, useCallback, useRef } from "react";
-import { Image } from "expo-image";
+import { RetryableImage as Image } from "./RetryableImage";
 import { ImageViewer } from "./ImageViewer";
 import { VideoPlayer } from "./VideoPlayer";
 import type { MediaAttachment } from "@types";
 import { useTheme } from "@contexts/ThemeContext";
 import { useSettings } from "@hooks/useSettings";
 import { useDelayedClick } from "@hooks/useDelayedClick";
-import { getWebGridContainerStyle, getWebListContainerStyle, getWebListItemStyle, fullSizeConstraints } from "@lib/styleHelpers";
+import {
+  getWebGridContainerStyle,
+  getWebListContainerStyle,
+  getWebListItemStyle,
+  fullSizeConstraints,
+} from "@lib/styleHelpers";
 import { STYLE_CONSTANTS } from "@lib/styleConstants";
 
 /**
@@ -92,7 +97,7 @@ export function MediaGrid({
       if (mode === "grid") {
         return undefined;
       }
-      
+
       if (onDoubleClick && mode === "list") {
         // Store the index and use delayed click handler
         return () => {
@@ -112,15 +117,12 @@ export function MediaGrid({
   // Helper function to get aspect ratio from media
   const getAspectRatio = (item: MediaAttachment): number | null => {
     // Try to get aspect ratio from meta
-    let aspectRatio =
-      item.meta?.original?.aspect || item.meta?.small?.aspect;
+    let aspectRatio = item.meta?.original?.aspect || item.meta?.small?.aspect;
 
     // If aspect ratio isn't available, calculate it from width and height
     if (!aspectRatio) {
-      const width =
-        item.meta?.original?.width || item.meta?.small?.width;
-      const height =
-        item.meta?.original?.height || item.meta?.small?.height;
+      const width = item.meta?.original?.width || item.meta?.small?.width;
+      const height = item.meta?.original?.height || item.meta?.small?.height;
 
       // Only calculate if both width and height are valid numbers (not 0 or undefined)
       if (width && height && width > 0 && height > 0) {
@@ -144,9 +146,7 @@ export function MediaGrid({
       // Single media: use full width, calculate height from aspect ratio
       const item = mediaArray[0];
       const aspectRatio = getAspectRatio(item);
-      const height = aspectRatio
-        ? GRID_WIDTH / aspectRatio
-        : GRID_WIDTH; // Default to square if no aspect ratio
+      const height = aspectRatio ? GRID_WIDTH / aspectRatio : GRID_WIDTH; // Default to square if no aspect ratio
       return [{ width: GRID_WIDTH, height, span: 1, aspectRatio }];
     } else if (count === 2) {
       // Two media: side by side, each with its own aspect ratio
@@ -164,23 +164,39 @@ export function MediaGrid({
       const firstHeight = firstAspectRatio
         ? width / firstAspectRatio
         : width * 2; // Default to 2x height
-      
+
       const rightItems = mediaArray.slice(1, 3);
       const rightHeights = rightItems.map((item) => {
         const aspectRatio = getAspectRatio(item);
         return aspectRatio ? width / aspectRatio : width; // Default to square
       });
-      
+
       // Calculate total height of right column
-      const rightTotalHeight = rightHeights.reduce((sum, h) => sum + h, 0) + GRID_GAP;
-      
+      const rightTotalHeight =
+        rightHeights.reduce((sum, h) => sum + h, 0) + GRID_GAP;
+
       // Adjust first item height to match right column if needed
       const adjustedFirstHeight = Math.max(firstHeight, rightTotalHeight);
-      
+
       return [
-        { width, height: adjustedFirstHeight, span: 2, aspectRatio: firstAspectRatio },
-        { width, height: rightHeights[0], span: 1, aspectRatio: getAspectRatio(rightItems[0]) },
-        { width, height: rightHeights[1], span: 1, aspectRatio: getAspectRatio(rightItems[1]) },
+        {
+          width,
+          height: adjustedFirstHeight,
+          span: 2,
+          aspectRatio: firstAspectRatio,
+        },
+        {
+          width,
+          height: rightHeights[0],
+          span: 1,
+          aspectRatio: getAspectRatio(rightItems[0]),
+        },
+        {
+          width,
+          height: rightHeights[1],
+          span: 1,
+          aspectRatio: getAspectRatio(rightItems[1]),
+        },
       ];
     } else {
       // 4 or more: 2x2 grid, each with its own aspect ratio
@@ -204,7 +220,7 @@ export function MediaGrid({
   const layouts = getMediaLayout(mode === "list" ? validMedia : media);
 
   return (
-    <View 
+    <View
       style={[
         mode === "grid" ? styles.containerGrid : styles.container,
         getWebGridContainerStyle(mode),
@@ -213,7 +229,9 @@ export function MediaGrid({
       {!showSensitive && (
         <View
           style={[
-            mode === "grid" ? styles.sensitiveOverlayGrid : styles.sensitiveOverlay,
+            mode === "grid"
+              ? styles.sensitiveOverlayGrid
+              : styles.sensitiveOverlay,
             { backgroundColor: colors.card },
           ]}
         >
@@ -249,7 +267,9 @@ export function MediaGrid({
           >
             <Text
               style={
-                mode === "grid" ? styles.showButtonTextGrid : styles.showButtonText
+                mode === "grid"
+                  ? styles.showButtonTextGrid
+                  : styles.showButtonText
               }
             >
               Show Media
@@ -261,10 +281,10 @@ export function MediaGrid({
       {showSensitive && (
         <View
           style={[
+            mode === "grid" ? styles.containerGrid : styles.grid,
             mode === "grid"
-              ? styles.containerGrid
-              : styles.grid,
-            mode === "grid" ? getWebGridContainerStyle(mode) : getWebListContainerStyle(mode),
+              ? getWebGridContainerStyle(mode)
+              : getWebListContainerStyle(mode),
           ]}
         >
           {validMedia.slice(0, 4).map((item, index) => {
@@ -276,7 +296,11 @@ export function MediaGrid({
               return (
                 <View
                   key={`${item.id}-${index}`}
-                  style={[styles.mediaItem, styles.gridMediaItem, { backgroundColor: "#8E8E8E" }]}
+                  style={[
+                    styles.mediaItem,
+                    styles.gridMediaItem,
+                    { backgroundColor: "#8E8E8E" },
+                  ]}
                   pointerEvents="box-none"
                 >
                   {isVideo ? (
@@ -292,13 +316,15 @@ export function MediaGrid({
                       <Image
                         source={{ uri: item.previewUrl || item.url }}
                         style={styles.image}
-                        contentFit="contain"
+                        contentFit="cover"
                         transition={200}
                       />
                       {/* More images indicator */}
                       {index === 3 && validMedia.length > 4 && (
                         <View style={styles.moreOverlay}>
-                          <Text style={styles.moreText}>+{validMedia.length - 4}</Text>
+                          <Text style={styles.moreText}>
+                            +{validMedia.length - 4}
+                          </Text>
                         </View>
                       )}
                     </>
@@ -317,9 +343,7 @@ export function MediaGrid({
             const aspectRatio = layout.aspectRatio;
             const mediaLayoutStyle = {
               width: STYLE_CONSTANTS.FULL_WIDTH,
-              ...(aspectRatio
-                ? { aspectRatio }
-                : { height: layout.height }), // Fallback height if no aspect ratio available
+              ...(aspectRatio ? { aspectRatio } : { height: layout.height }), // Fallback height if no aspect ratio available
               maxWidth: STYLE_CONSTANTS.FULL_WIDTH,
               minWidth: STYLE_CONSTANTS.FLEX_MIN_WIDTH,
               // On web, override any width calculations from React Native Web
@@ -331,11 +355,7 @@ export function MediaGrid({
             return (
               <TouchableOpacity
                 key={`${item.id}-${index}`}
-                style={[
-                  styles.mediaItem,
-                  mediaLayoutStyle,
-                  itemSpacing,
-                ]}
+                style={[styles.mediaItem, mediaLayoutStyle, itemSpacing]}
                 onPress={pressHandler}
                 activeOpacity={0.9}
                 disabled={isVideo && item.type !== "gifv"}
@@ -360,7 +380,9 @@ export function MediaGrid({
                     {/* More images indicator */}
                     {index === 3 && validMedia.length > 4 && (
                       <View style={styles.moreOverlay}>
-                        <Text style={styles.moreText}>+{validMedia.length - 4}</Text>
+                        <Text style={styles.moreText}>
+                          +{validMedia.length - 4}
+                        </Text>
                       </View>
                     )}
                   </>

@@ -146,4 +146,3 @@ describe("FeedGridView - Pagination resilience", () => {
     expect(onEndReached).toHaveBeenCalledTimes(1);
   });
 });
-

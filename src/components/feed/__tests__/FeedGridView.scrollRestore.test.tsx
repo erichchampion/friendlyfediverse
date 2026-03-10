@@ -19,7 +19,9 @@ describe("FeedGridView scroll restoration", () => {
 
     // Simulate the current buggy behavior:
     // Post not found, so mark it as scrolled anyway
-    const targetItem = gridItems.find(item => item.feedItemId === scrollToPostId);
+    const targetItem = gridItems.find(
+      (item) => item.feedItemId === scrollToPostId,
+    );
 
     if (!targetItem) {
       // BUG: Current code marks it as scrolled even though we didn't scroll
@@ -48,7 +50,9 @@ describe("FeedGridView scroll restoration", () => {
       { id: "post-2-media-0", feedItemId: "post-2" },
     ];
 
-    let targetItem = gridItems.find(item => item.feedItemId === scrollToPostId);
+    let targetItem = gridItems.find(
+      (item) => item.feedItemId === scrollToPostId,
+    );
 
     // Post not found initially
     expect(targetItem).toBeUndefined();
@@ -64,7 +68,7 @@ describe("FeedGridView scroll restoration", () => {
     ];
 
     // Now the target post exists
-    targetItem = gridItems.find(item => item.feedItemId === scrollToPostId);
+    targetItem = gridItems.find((item) => item.feedItemId === scrollToPostId);
     expect(targetItem).toBeDefined();
     expect(targetItem?.feedItemId).toBe("post-123");
 
@@ -85,7 +89,9 @@ describe("FeedGridView scroll restoration", () => {
       { id: "post-50-media-0", feedItemId: "post-50", type: "media" },
     ];
 
-    const targetItem = gridItems.find(item => item.feedItemId === scrollToPostId);
+    const targetItem = gridItems.find(
+      (item) => item.feedItemId === scrollToPostId,
+    );
 
     if (targetItem) {
       // Calculate offset (simplified)

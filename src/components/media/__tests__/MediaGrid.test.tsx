@@ -313,26 +313,29 @@ describe("MediaGrid", () => {
       // Find the media item container (TouchableOpacity in list mode)
       const { TouchableOpacity } = require("react-native");
       const mediaItems = UNSAFE_getAllByType(TouchableOpacity);
-      
+
       // Should have at least one media item (the sensitive overlay button and media item)
       expect(mediaItems.length).toBeGreaterThan(0);
-      
+
       // Find the media item (not the sensitive overlay button)
       // Media items have onPress handler, sensitive button has onPress too but different structure
-      const mediaItem = mediaItems.find(
-        (item: any) => item.props.onPress && !item.props.children?.props?.children?.includes("Show Media")
-      ) || mediaItems[mediaItems.length - 1]; // Fallback to last item
-      
+      const mediaItem =
+        mediaItems.find(
+          (item: any) =>
+            item.props.onPress &&
+            !item.props.children?.props?.children?.includes("Show Media"),
+        ) || mediaItems[mediaItems.length - 1]; // Fallback to last item
+
       expect(mediaItem).toBeDefined();
-      
+
       if (mediaItem) {
         const style = mediaItem.props.style;
-        
+
         // Flatten style array if needed
-        const flattenedStyle = Array.isArray(style) 
+        const flattenedStyle = Array.isArray(style)
           ? Object.assign({}, ...style.filter((s: any) => s))
           : style;
-        
+
         // Check that maxWidth and maxHeight are set to "100%" to respect parent container
         // This prevents expo-image on web from setting dimensions larger than the container
         expect(flattenedStyle.maxWidth).toBeDefined();
@@ -350,20 +353,20 @@ describe("MediaGrid", () => {
       // Find the media item container (View in grid mode)
       const { View } = require("react-native");
       const mediaItems = UNSAFE_getAllByType(View);
-      
+
       // Find the media item (has pointerEvents="box-none" in grid mode)
       const mediaItem = mediaItems.find(
-        (item: any) => item.props.pointerEvents === "box-none"
+        (item: any) => item.props.pointerEvents === "box-none",
       );
-      
+
       expect(mediaItem).toBeDefined();
-      
+
       if (mediaItem) {
         const style = mediaItem.props.style;
-        const flattenedStyle = Array.isArray(style) 
+        const flattenedStyle = Array.isArray(style)
           ? Object.assign({}, ...style.filter((s: any) => s))
           : style;
-        
+
         // Check that maxWidth and maxHeight are set to "100%" to respect parent container
         expect(flattenedStyle.maxWidth).toBeDefined();
         expect(flattenedStyle.maxWidth).toBe("100%");

@@ -4,10 +4,10 @@
  */
 
 export interface Instance {
-  id: string;              // Format: "${url}@${accountId}" for multi-account support
-  url: string;             // Server URL (e.g., "https://mastodon.social")
-  accountId: string;       // Mastodon account ID (e.g., "109382926501")
-  username: string;        // Username for display (e.g., "alice")
+  id: string; // Format: "${url}@${accountId}" for multi-account support
+  url: string; // Server URL (e.g., "https://mastodon.social")
+  accountId: string; // Mastodon account ID (e.g., "109382926501")
+  username: string; // Username for display (e.g., "alice")
   displayName: string;
   domain: string;
   createdAt: number;
@@ -17,7 +17,7 @@ export interface Instance {
 }
 
 export interface InstanceSettings {
-  defaultFeedType?: 'home' | 'local' | 'public';
+  defaultFeedType?: "home" | "local" | "public";
   autoRefresh?: boolean;
   cacheRetention?: number; // hours
 }

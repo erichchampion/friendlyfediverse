@@ -17,6 +17,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Authentication & Onboarding
 
 #### Instance Selection
+
 - [ ] App launches successfully
 - [ ] Instance selection screen displays
 - [ ] Can enter custom instance URL
@@ -25,6 +26,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Can proceed to login with valid instance
 
 #### OAuth Flow
+
 - [ ] OAuth authorization opens in browser
 - [ ] Can authorize application
 - [ ] Callback redirect works correctly
@@ -34,6 +36,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Token refresh works automatically
 
 #### Multi-Account
+
 - [ ] Can add multiple accounts
 - [ ] Account switcher shows all accounts
 - [ ] Can switch between accounts
@@ -47,6 +50,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Feed System
 
 #### Home Timeline
+
 - [ ] Feed loads on first launch
 - [ ] Skeleton screens show while loading
 - [ ] Posts display correctly
@@ -58,6 +62,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] New posts load in background
 
 #### Feed Types
+
 - [ ] Can switch to Local timeline
 - [ ] Can switch to Public timeline
 - [ ] Each feed type loads correct data
@@ -65,6 +70,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Tab indicator shows active feed
 
 #### Post Display
+
 - [ ] User avatar displays
 - [ ] Display name shows correctly
 - [ ] Username shows correctly
@@ -76,12 +82,14 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Mentions are highlighted (when implemented)
 
 #### Boosts/Reblogs
+
 - [ ] Boost indicator shows
 - [ ] Boosted by user name displays
 - [ ] Boosted content displays correctly
 - [ ] Original author information preserved
 
 #### Content Warnings
+
 - [ ] CW badge displays
 - [ ] CW text shows correctly
 - [ ] Content is hidden by default
@@ -92,6 +100,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Media Handling
 
 #### Images
+
 - [ ] Single images display
 - [ ] Multiple images show in grid
 - [ ] Images load with placeholder
@@ -103,6 +112,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Image descriptions display
 
 #### Videos
+
 - [ ] Videos play inline
 - [ ] Play/pause controls work
 - [ ] Video starts when in viewport
@@ -113,11 +123,13 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Video caching works
 
 #### GIFs
+
 - [ ] GIFs auto-play
 - [ ] GIFs loop correctly
 - [ ] GIF playback is smooth
 
 #### Sensitive Content
+
 - [ ] Sensitive media is blurred
 - [ ] Tap to reveal works
 - [ ] Warning message displays
@@ -128,6 +140,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Interactions
 
 #### Like/Favorite
+
 - [ ] Tap star to favorite
 - [ ] Star turns red when favorited
 - [ ] Count increases immediately
@@ -137,6 +150,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] State persists after navigation
 
 #### Boost/Reblog
+
 - [ ] Tap boost button
 - [ ] Icon turns green when boosted
 - [ ] Count increases immediately
@@ -146,6 +160,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Optimistic update rolls back on error
 
 #### Bookmark
+
 - [ ] Tap bookmark button
 - [ ] Icon changes color when bookmarked
 - [ ] Animation plays smoothly
@@ -153,11 +168,13 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Optimistic update rolls back on error
 
 #### Reply
+
 - [ ] Tap reply button
 - [ ] Compose modal opens
 - [ ] Reply count displays correctly
 
 #### Share
+
 - [ ] Tap share button
 - [ ] Native share sheet opens
 - [ ] Post URL is shared
@@ -168,6 +185,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Compose
 
 #### Text Composition
+
 - [ ] Compose modal opens
 - [ ] Text input is focused
 - [ ] Keyboard appears
@@ -178,6 +196,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Post button disabled when empty
 
 #### Media Upload
+
 - [ ] Can tap media button
 - [ ] Photo picker opens
 - [ ] Can select photo
@@ -190,6 +209,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Remove button works
 
 #### Advanced Features
+
 - [ ] Can toggle content warning
 - [ ] CW text input shows
 - [ ] Can set visibility (public, unlisted, followers, direct)
@@ -197,6 +217,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Visibility persists during composition
 
 #### Posting
+
 - [ ] Post button works
 - [ ] Loading state shows
 - [ ] Success message displays
@@ -205,6 +226,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Can retry after error
 
 #### Draft Management
+
 - [ ] Cancel shows confirmation if content exists
 - [ ] No confirmation if empty
 - [ ] Discard works correctly
@@ -214,12 +236,14 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Search
 
 #### Search Input
+
 - [ ] Search bar accepts text
 - [ ] Clear button appears
 - [ ] Clear button works
 - [ ] Search executes on submit
 
 #### Results
+
 - [ ] Account results display
 - [ ] Post results display
 - [ ] Hashtag results display
@@ -228,6 +252,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Empty states show correctly
 
 #### Navigation
+
 - [ ] Tap account opens profile
 - [ ] Tap post works (when implemented)
 - [ ] Tap hashtag works (when implemented)
@@ -237,6 +262,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### User Profiles
 
 #### Profile Display
+
 - [ ] Profile loads correctly
 - [ ] Header/banner image displays
 - [ ] Avatar displays
@@ -245,6 +271,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Stats display (posts, following, followers)
 
 #### Follow/Unfollow
+
 - [ ] Follow button works
 - [ ] Button changes to Unfollow
 - [ ] Follower count updates
@@ -253,10 +280,12 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Optimistic update works
 
 #### Relationship Info
+
 - [ ] "Follows you" badge shows when applicable
 - [ ] Relationship status loads
 
 #### User Posts
+
 - [ ] Posts tab loads user's posts
 - [ ] Media tab shows only media posts
 - [ ] Can switch between tabs
@@ -264,6 +293,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] All post features work in profile
 
 #### Own Profile
+
 - [ ] Stats display correctly
 - [ ] "View My Posts" toggle works
 - [ ] Posts load on demand
@@ -274,6 +304,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Settings
 
 #### Appearance
+
 - [ ] Light mode switch works
 - [ ] Dark mode switch works
 - [ ] Auto mode follows system
@@ -281,6 +312,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Theme persists after restart
 
 #### Media & Playback
+
 - [ ] Auto-play videos toggle works
 - [ ] Auto-play GIFs toggle works
 - [ ] Show sensitive media toggle works
@@ -288,6 +320,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Settings persist
 
 #### Data & Storage
+
 - [ ] Cache images toggle works
 - [ ] Clear cache button works
 - [ ] Confirmation dialog shows
@@ -295,6 +328,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Cache is actually cleared
 
 #### Account Management
+
 - [ ] Edit profile button shows (placeholder)
 - [ ] Account settings button shows (placeholder)
 - [ ] Switch account opens modal
@@ -306,6 +340,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Performance
 
 #### Scroll Performance
+
 - [ ] Feed scrolls at 60 FPS
 - [ ] No jank during scroll
 - [ ] Images load smoothly
@@ -313,12 +348,14 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Skeleton screens are smooth
 
 #### Memory
+
 - [ ] Memory usage stays reasonable
 - [ ] No memory leaks
 - [ ] Cache doesn't grow indefinitely
 - [ ] Videos are cleaned up
 
 #### Network
+
 - [ ] Requests are batched appropriately
 - [ ] Rate limiting works
 - [ ] Offline mode shows appropriate messages
@@ -329,6 +366,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Accessibility
 
 #### Screen Reader (VoiceOver)
+
 - [ ] All interactive elements focusable
 - [ ] Button labels are descriptive
 - [ ] State changes announced
@@ -337,6 +375,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Navigation is logical
 
 #### Visual
+
 - [ ] Text is readable
 - [ ] Color contrast is sufficient
 - [ ] Touch targets are large enough (44x44pt minimum)
@@ -347,18 +386,21 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Error Handling
 
 #### Network Errors
+
 - [ ] No connection shows error
 - [ ] Timeout shows error
 - [ ] Can retry failed requests
 - [ ] Error messages are clear
 
 #### API Errors
+
 - [ ] 401/403 handled correctly
 - [ ] 404 shows not found
 - [ ] 500 shows server error
 - [ ] Rate limit shows appropriate message
 
 #### App Errors
+
 - [ ] Error boundary catches errors
 - [ ] Fallback UI displays
 - [ ] Try Again button works
@@ -369,18 +411,21 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ### Edge Cases
 
 #### Empty States
+
 - [ ] Empty feed shows message
 - [ ] No search results shows message
 - [ ] No followers shows message
 - [ ] All empty states helpful
 
 #### Long Content
+
 - [ ] Very long posts display correctly
 - [ ] Many images handled properly
 - [ ] Long usernames truncate
 - [ ] Long display names truncate
 
 #### Special Characters
+
 - [ ] Emoji display correctly
 - [ ] Unicode characters work
 - [ ] Special characters in posts work
@@ -391,18 +436,21 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ## Device Testing Matrix
 
 ### iOS Versions
+
 - [ ] iOS 15
 - [ ] iOS 16
 - [ ] iOS 17
 - [ ] iOS 18 (latest)
 
 ### Device Sizes
+
 - [ ] iPhone SE (small)
 - [ ] iPhone 14 Pro (standard)
 - [ ] iPhone 14 Pro Max (large)
 - [ ] iPad (tablet - if supported)
 
 ### Orientations
+
 - [ ] Portrait mode
 - [ ] Landscape mode (if supported)
 
@@ -411,6 +459,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ## Performance Benchmarks
 
 ### Target Metrics
+
 - **App Launch Time**: < 2 seconds
 - **Feed Load Time**: < 1 second (cached)
 - **Feed Load Time**: < 3 seconds (network)
@@ -419,6 +468,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - **Crash Rate**: < 0.1%
 
 ### Measurement Tools
+
 - Xcode Instruments
 - React DevTools Profiler
 - FPS Monitor
@@ -429,6 +479,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ## Automated Testing Strategy
 
 ### Unit Tests
+
 - API client functions
 - Data transformers
 - Utility functions
@@ -436,12 +487,14 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - Storage service
 
 ### Integration Tests
+
 - OAuth flow
 - Feed loading
 - Post interactions
 - Search functionality
 
 ### E2E Tests (Detox/Maestro)
+
 - Complete user flows
 - Critical paths
 - Edge cases
@@ -451,6 +504,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 ## Release Checklist
 
 ### Pre-Release
+
 - [ ] All manual tests pass
 - [ ] No known critical bugs
 - [ ] Performance meets targets
@@ -461,6 +515,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Terms of service updated
 
 ### Build Preparation
+
 - [ ] Version number incremented
 - [ ] Build number incremented
 - [ ] Release notes prepared
@@ -469,6 +524,7 @@ This document provides comprehensive testing guidelines for the Friendly Fediver
 - [ ] Splash screen finalized
 
 ### App Store Submission
+
 - [ ] Build uploaded to TestFlight
 - [ ] TestFlight beta tested
 - [ ] Feedback incorporated
@@ -515,6 +571,7 @@ Any other relevant information
 ## Quality Gates
 
 ### Must Pass Before Release
+
 1. ✅ All critical functionality works
 2. ✅ No crash bugs
 3. ✅ Performance meets targets
@@ -523,6 +580,7 @@ Any other relevant information
 6. ✅ Privacy compliance
 
 ### Should Pass Before Release
+
 1. ⚠️ All medium priority bugs fixed
 2. ⚠️ UI polish complete
 3. ⚠️ All animations smooth
@@ -532,20 +590,23 @@ Any other relevant information
 
 ## Testing Sign-Off
 
-**Tested By**: _________________
+**Tested By**: ********\_********
 
-**Date**: _________________
+**Date**: ********\_********
 
 **Platform**: iOS [version]
 
-**Device**: _________________
+**Device**: ********\_********
 
-**Status**: ☐ Pass  ☐ Fail
+**Status**: ☐ Pass ☐ Fail
 
 **Notes**:
-_______________________________________
-_______________________________________
-_______________________________________
+
+---
+
+---
+
+---
 
 ---
 

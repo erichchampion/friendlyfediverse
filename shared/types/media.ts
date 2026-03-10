@@ -5,7 +5,7 @@
 
 export interface MediaAttachment {
   id: string;
-  type: 'image' | 'video' | 'gifv' | 'audio' | 'unknown';
+  type: "image" | "video" | "gifv" | "audio" | "unknown";
   url: string;
   previewUrl: string;
   description: string | null;

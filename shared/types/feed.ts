@@ -3,10 +3,10 @@
  * Shared between web and React Native apps
  */
 
-import type { Post } from './post';
+import type { Post } from "./post";
 
 export interface FeedType {
-  type: 'home' | 'local' | 'public' | 'list' | 'hashtag' | 'profile';
+  type: "home" | "local" | "public" | "list" | "hashtag" | "profile";
   id?: string; // For list ID, hashtag name, or profile ID
 }
 

@@ -60,7 +60,7 @@ jest.mock("@components/media", () => {
   const React = require("react");
   const { View, TouchableOpacity } = require("react-native");
   const { useDelayedClick } = require("@hooks/useDelayedClick");
-  
+
   return {
     MediaGrid: ({ onMediaPress, onDoubleClick, testID }: any) => {
       // Track if image viewer would be opened (MediaGrid opens it internally)
@@ -71,14 +71,14 @@ jest.mock("@components/media", () => {
         // Also call external callback if provided
         onMediaPress?.(index);
       };
-      
+
       const wrappedOnDoubleClick = onDoubleClick
         ? () => {
             mockMediaGridOnDoubleClick();
             onDoubleClick();
           }
         : undefined;
-      
+
       // Use the actual useDelayedClick hook if onDoubleClick is provided
       // MediaGrid's handleMediaPress opens the viewer internally
       const handlePress = wrappedOnDoubleClick
@@ -87,13 +87,10 @@ jest.mock("@components/media", () => {
             onDoubleClick: wrappedOnDoubleClick,
           })
         : () => handleMediaPressInternal(0);
-      
+
       return (
         <View testID={testID || "media-grid"}>
-          <TouchableOpacity
-            testID="media-item"
-            onPress={handlePress}
-          />
+          <TouchableOpacity testID="media-item" onPress={handlePress} />
         </View>
       );
     },
@@ -311,7 +308,7 @@ describe("PostCard", () => {
       // useDelayedClick waits for doubleClickDelay (300ms) first, then executes single-click
       // Advance past the double-click window and single-click delay
       jest.advanceTimersByTime(350);
-      
+
       // Run all pending timers to ensure everything executes
       jest.runAllTimers();
 

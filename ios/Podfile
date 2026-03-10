@@ -56,19 +56,5 @@ target 'FriendlyFediverse' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-    # Enforce minimum deployment target so pods (e.g. SDWebImage) don't use 9.0
-    minimum_ios = podfile_properties['ios.deploymentTarget'] || '15.1'
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios
-      end
-      # Mark script phases without outputs as "always run" so Xcode stops warning about
-      # "Run script build phase will be run during every build because it does not specify any outputs"
-      target.build_phases.each do |phase|
-        if phase.respond_to?(:shell_script) && phase.respond_to?(:always_out_of_date=)
-          phase.always_out_of_date = '1'
-        end
-      end
-    end
   end
 end

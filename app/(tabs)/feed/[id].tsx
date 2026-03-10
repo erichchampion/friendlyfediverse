@@ -8,11 +8,17 @@ import {
   TouchableOpacity,
   InteractionManager,
   Dimensions,
+  useWindowDimensions,
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  Platform,
 } from "react-native";
-import { FlashList, type FlashListRef, type ViewToken } from "@shopify/flash-list";
+import {
+  FlashList,
+  type FlashListRef,
+  type ViewToken,
+} from "@shopify/flash-list";
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "@contexts/ThemeContext";
@@ -83,6 +89,10 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const { colors } = useTheme();
   const { instance } = useAuth();
 
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width >= 768;
+  const contentWidth = Platform.OS === "web" ? Math.min(width, 1024) : width;
+
   const { feedType, feedId } = parseFeedParams(routeId || "public");
 
   // View mode state (list or grid) - persisted across navigation
@@ -92,8 +102,9 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Track view transition state (for smooth transitions when switching views)
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // Track current visible post ID for scroll position restoration
+  // Track current visible post  // Track scroll target for view switching and syncing
   const currentPostIdRef = useRef<string | null>(null);
+  const [syncTrigger, setSyncTrigger] = useState(0);
   const flashListRef = useRef<FlashListRef<FeedItem>>(null);
 
   // Simple debounce for pagination
@@ -105,12 +116,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   );
   const visibleSectionsRef = useRef<Set<string>>(new Set());
   const lastVisibilityUpdateRef = useRef<number>(0);
-  const postLayoutsRef = useRef<
-    Map<string, { y: number; height: number }>
-  >(new Map());
-  const itemLayoutsRef = useRef<
-    Map<string, { y: number; height: number }>
-  >(new Map());
+  const postLayoutsRef = useRef<Map<string, { y: number; height: number }>>(
+    new Map(),
+  );
+  const itemLayoutsRef = useRef<Map<string, { y: number; height: number }>>(
+    new Map(),
+  );
   const averagePostHeightRef = useRef<number>(
     Dimensions.get("window").height * 0.6,
   ); // runtime-derived fallback
@@ -139,6 +150,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   const {
     posts,
     pendingNewPosts,
+    viewportPosition,
     isLoading,
     isRefreshing,
     isLoadingMore,
@@ -174,13 +186,13 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Transform posts into header/content items for sticky headers
   const feedItems = useMemo(
     () => transformPostsToFeedItems(displayPosts),
-    [displayPosts]
+    [displayPosts],
   );
 
   // Calculate sticky header indices (all even indices: 0, 2, 4, ...)
   const stickyIndices = useMemo(
     () => calculateStickyIndices(feedItems),
-    [feedItems]
+    [feedItems],
   );
 
   // Initialize visible sections when posts load
@@ -226,15 +238,23 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Scroll to target post when switching to list view
   useEffect(() => {
-    if (!isGridView && currentPostIdRef.current && flashListRef.current && feedItems.length > 0) {
+    if (
+      !isGridView &&
+      currentPostIdRef.current &&
+      flashListRef.current &&
+      feedItems.length > 0
+    ) {
       const targetPostId = currentPostIdRef.current;
       const targetIndex = feedItems.findIndex(
-        (item) => item.post.id === targetPostId || item.post.reblog?.id === targetPostId
+        (item) =>
+          item.post.id === targetPostId ||
+          item.post.reblog?.id === targetPostId,
       );
 
       if (targetIndex >= 0) {
         // Scroll to header (even indices: 0, 2, 4...)
-        const headerIndex = targetIndex % 2 === 0 ? targetIndex : targetIndex - 1;
+        const headerIndex =
+          targetIndex % 2 === 0 ? targetIndex : targetIndex - 1;
 
         // Use InteractionManager to scroll after render completes
         InteractionManager.runAfterInteractions(() => {
@@ -268,46 +288,63 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       prevPosts[0]?.id && posts[0]?.id && prevPosts[0].id !== posts[0].id;
     const lengthStable = posts.length === prevPosts.length;
 
-    if (firstChanged && lengthStable && !isGridView && flashListRef.current) {
+    if (firstChanged && lengthStable) {
       const currentIds = new Set(posts.map((p) => p.id));
       const removedIds = prevPosts
         .filter((p) => !currentIds.has(p.id))
         .map((p) => p.id);
 
       if (removedIds.length > 0) {
-        // Calculate removed height from item layouts (header + content)
-        const removedItemIds = new Set<string>();
-        removedIds.forEach((postId) => {
-          removedItemIds.add(`${postId}-header`);
-          removedItemIds.add(`${postId}-content`);
-        });
+        if (!isGridView && flashListRef.current) {
+          // List view: compensate scroll using measured item heights
+          const removedItemIds = new Set<string>();
+          removedIds.forEach((postId) => {
+            removedItemIds.add(`${postId}-header`);
+            removedItemIds.add(`${postId}-content`);
+          });
 
-        let removedHeight = 0;
-        removedItemIds.forEach((itemId) => {
-          const layout = itemLayoutsRef.current.get(itemId);
-          if (layout) {
-            removedHeight += layout.height;
+          let removedHeight = 0;
+          removedItemIds.forEach((itemId) => {
+            const layout = itemLayoutsRef.current.get(itemId);
+            if (layout) {
+              removedHeight += layout.height;
+            }
+          });
+
+          if (removedHeight > 0) {
+            const { y } = lastScrollMetricsRef.current;
+            flashListRef.current.scrollToOffset({
+              offset: Math.max(0, y - removedHeight),
+              animated: false,
+            });
           }
-        });
+        }
 
-        if (removedHeight > 0) {
-          const { y } = lastScrollMetricsRef.current;
-          flashListRef.current.scrollToOffset({
-            offset: Math.max(0, y - removedHeight),
-            animated: false,
+        // Grid view: scroll compensation happens in FeedGridView. We must update
+        // viewport position SYNCHRONOUSLY so the next trim uses correct indices.
+        // When we remove K posts from start, all remaining posts shift down by K indices.
+        if (isGridView) {
+          const removedCount = removedIds.length;
+          const prevFirst = viewportPosition?.firstVisibleIndex ?? 0;
+          const prevLast = viewportPosition?.lastVisibleIndex ?? 0;
+          const newFirst = Math.max(0, prevFirst - removedCount);
+          const newLast = Math.max(0, prevLast - removedCount);
+          updateViewportPosition({
+            firstVisibleIndex: newFirst,
+            lastVisibleIndex: newLast,
           });
         }
       }
     }
 
     prevPostsRef.current = posts;
-  }, [posts, isGridView]);
+  }, [posts, isGridView, viewportPosition, updateViewportPosition]);
 
   // Remove stale layout entries when posts change or view switches
   useEffect(() => {
     const validIds = new Set(displayPosts.map((p) => p.id));
     const validItemIds = new Set(
-      displayPosts.flatMap((p) => [`${p.id}-header`, `${p.id}-content`])
+      displayPosts.flatMap((p) => [`${p.id}-header`, `${p.id}-content`]),
     );
 
     // Clean up post layouts
@@ -334,13 +371,16 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   // Handle FlashList viewable items changed - this is the reliable way to track visibility
   const handleFlashListViewableItemsChanged = useCallback(
-    (info: { viewableItems: ViewToken<FeedItem>[]; changed: ViewToken<FeedItem>[] }) => {
+    (info: {
+      viewableItems: ViewToken<FeedItem>[];
+      changed: ViewToken<FeedItem>[];
+    }) => {
       const visiblePostIds = new Set<string>();
       const visibleIndices: number[] = [];
 
       // Extract post IDs from viewable content items (videos are in content, not headers)
       info.viewableItems.forEach(({ item, index }) => {
-        if (item && item.type === 'content') {
+        if (item && item.type === "content") {
           visiblePostIds.add(item.post.id);
           if (index !== null && index !== undefined) {
             visibleIndices.push(index);
@@ -376,7 +416,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         if (postIndices.length > 0) {
           const firstVisibleIndex = Math.min(...postIndices);
           const lastVisibleIndex = Math.max(...postIndices);
-          
+
           // Update viewport position for smart trimming
           updateViewportPosition({
             firstVisibleIndex,
@@ -622,7 +662,8 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
   // Handle scroll event for end detection and visibility tracking
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
       const scrollY = contentOffset.y;
       const viewportHeight = layoutMeasurement.height;
       const contentHeight = contentSize.height;
@@ -633,12 +674,14 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // Proactive loading: trigger when within N viewport heights from bottom
       // This ensures posts load well before reaching the end, maintaining a large buffer
       const distanceFromBottom = contentHeight - (scrollY + viewportHeight);
-      const proactiveThreshold = viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
+      const proactiveThreshold =
+        viewportHeight * UI_CONFIG.PROACTIVE_LOAD_BUFFER_RATIO;
       const isNearBottom = distanceFromBottom <= proactiveThreshold;
 
       // Fallback to pixel-based threshold for very small viewports
       const isNearBottomPixels =
-        viewportHeight + scrollY >= contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
+        viewportHeight + scrollY >=
+        contentHeight - UI_CONFIG.PAGINATION_THRESHOLD;
 
       if ((isNearBottom || isNearBottomPixels) && !isLoadingMore && hasMore) {
         const now = Date.now();
@@ -693,12 +736,46 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     setIsGridView(!isGridView);
   }, [isGridView, displayPosts]);
 
+  // Handle sync list to grid (side-by-side)
+  const handleGridSync = useCallback(() => {
+    const visiblePostId =
+      firstVisibleGridPostIdRef.current ||
+      (displayPosts.length > 0 ? displayPosts[0].id : null);
+    if (visiblePostId) {
+      // Find the index of this post in feedItems
+      const index = feedItems.findIndex(
+        (item) =>
+          item.id === `${visiblePostId}-header` ||
+          item.id === `${visiblePostId}-content` ||
+          item.post.id === visiblePostId
+      );
+      if (index >= 0) {
+        flashListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0,
+        });
+      }
+    }
+  }, [displayPosts, feedItems]);
+
+  // Handle sync grid to list (side-by-side)
+  const handleListSync = useCallback(() => {
+    const visiblePostId =
+      firstVisiblePostIdRef.current ||
+      (displayPosts.length > 0 ? displayPosts[0].id : null);
+    if (visiblePostId) {
+      currentPostIdRef.current = visiblePostId;
+      setSyncTrigger((prev) => prev + 1); // trigger re-render to pass new currentPostIdRef
+    }
+  }, [displayPosts]);
+
   // Clear scroll target after grid view scroll restoration completes
   const handleGridScrollComplete = useCallback(() => {
     currentPostIdRef.current = null;
   }, []);
 
-  // Handle reload
+  // Handle reload (shared)
   const handleReload = useCallback(async () => {
     if (!isRefreshing && !isLoading) {
       await reload();
@@ -719,9 +796,36 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
     }
   }, [isRefreshing, isLoading, reload, isGridView, displayPosts]);
 
+  // Handle reload (Grid column specific)
+  const handleGridReload = useCallback(async () => {
+    if (!isRefreshing && !isLoading) {
+      await reload();
+      if (displayPosts.length > 0) {
+        setTimeout(() => {
+          setGridScrollSignal((prev) => prev + 1);
+        }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+      }
+    }
+  }, [isRefreshing, isLoading, reload, displayPosts]);
+
+  // Handle reload (List column specific)
+  const handleListReload = useCallback(async () => {
+    if (!isRefreshing && !isLoading) {
+      await reload();
+      if (displayPosts.length > 0) {
+        setTimeout(() => {
+          flashListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }, UI_CONFIG.SCROLL_RECOVERY_DELAY);
+      }
+    }
+  }, [isRefreshing, isLoading, reload, displayPosts]);
+
   // Wrap the feed's viewable items callback to track first visible post in grid view
   const handleGridViewableItemsChanged = useCallback(
-    (info: { viewableItems: { index: number | null; item: any }[]; changed: any[] }) => {
+    (info: {
+      viewableItems: { index: number | null; item: any }[];
+      changed: any[];
+    }) => {
       // Track first visible post in grid view for view transitions
       if (info.viewableItems.length > 0 && info.viewableItems[0]?.item) {
         const firstItem = info.viewableItems[0].item;
@@ -735,7 +839,12 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       // In grid view, FeedGridView already provides post indices directly
       const visibleIndices: number[] = [];
       info.viewableItems.forEach(({ index }) => {
-        if (index !== null && index !== undefined && index >= 0 && index < displayPosts.length) {
+        if (
+          index !== null &&
+          index !== undefined &&
+          index >= 0 &&
+          index < displayPosts.length
+        ) {
           visibleIndices.push(index);
         }
       });
@@ -743,7 +852,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
       if (visibleIndices.length > 0) {
         const firstVisibleIndex = Math.min(...visibleIndices);
         const lastVisibleIndex = Math.max(...visibleIndices);
-        
+
         // Update viewport position for smart trimming
         updateViewportPosition({
           firstVisibleIndex,
@@ -756,17 +865,35 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         feedHandleViewableItemsChanged(info);
       }
     },
-    [feedHandleViewableItemsChanged, displayPosts, updateViewportPosition]
+    [feedHandleViewableItemsChanged, displayPosts, updateViewportPosition],
   );
 
   // Handle media press in grid view
   const handleMediaPress = useCallback(
     async (postId: string, mediaIndex: number) => {
-      // Switch to list view
-      setIsGridView(false);
-
       // Save the target post ID for scroll restoration
       currentPostIdRef.current = postId;
+
+      if (isLargeScreen) {
+        // In side-by-side mode, both views are visible. We just need to
+        // scroll the list view to the clicked post.
+        const index = feedItems.findIndex(
+          (item) =>
+            item.id === `${postId}-header` ||
+            item.id === `${postId}-content` ||
+            item.post.id === postId
+        );
+        if (index >= 0) {
+          flashListRef.current?.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0,
+          });
+        }
+      } else {
+        // On narrow screens, switch to list view explicitly
+        setIsGridView(false);
+      }
 
       // Check if post exists in current feed
       const postExists = posts.some(
@@ -787,7 +914,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         }
       }
     },
-    [posts, jumpToPost],
+    [isLargeScreen, feedItems, posts, jumpToPost],
   );
 
   // Handle toggle favorite for grid view double-click
@@ -858,12 +985,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         console.error("Error toggling favorite:", error);
         // Roll back on error
         updatePost(postId, (post) =>
-          applyFavouriteStateToPost(
-            post,
-            postId,
-            previousState,
-            previousCount,
-          ),
+          applyFavouriteStateToPost(post, postId, previousState, previousCount),
         );
         Alert.alert("Error", "Failed to update favorite. Please try again.");
       }
@@ -943,7 +1065,76 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         </TouchableOpacity>
       )}
 
-      {isGridView ? (
+      {isLargeScreen ? (
+        <View style={styles.sideBySideContainer}>
+          <View style={styles.sideColumn}>
+            <FeedGridView
+              posts={displayPosts}
+              onMediaPress={handleMediaPress}
+              onToggleFavorite={handleToggleFavorite}
+              onEndReached={handleEndReached}
+              hasMore={hasMore}
+              onRefresh={refresh}
+              isRefreshing={isRefreshing}
+              isLoadingMore={isLoadingMore}
+              scrollToPostId={currentPostIdRef.current}
+              onViewableItemsChanged={handleGridViewableItemsChanged}
+              scrollToTopSignal={gridScrollSignal}
+              onScrollComplete={handleGridScrollComplete}
+              containerWidth={Math.floor((contentWidth - 1) / 2)}
+            />
+            {/* Grid column buttons */}
+            <FloatingButtons
+              onGridToggle={handleGridSync}
+              onReload={handleGridReload}
+              isGridView={true} // Displays a list icon (sync to list)
+              isLoading={isRefreshing || isLoading}
+            />
+          </View>
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.sideColumn}>
+            <FlashList<FeedItem>
+              key={`feed-list-${feedType}-${feedId || "default"}`}
+              ref={flashListRef}
+              data={feedItems}
+              renderItem={renderFlashListItem}
+              keyExtractor={(item) => item.id}
+              // Sticky headers - makes post headers stick to top while scrolling
+              stickyHeaderIndices={stickyIndices}
+              // Scroll behavior
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              // Visibility tracking for video autoplay
+              onViewableItemsChanged={handleFlashListViewableItemsChanged}
+              viewabilityConfig={{
+                itemVisiblePercentThreshold: 50, // Item must be 50% visible
+                minimumViewTime: 100, // Must be visible for 100ms
+              }}
+              // Refresh
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={refresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
+              // Footer and empty state
+              ListFooterComponent={renderFooter}
+              ListEmptyComponent={renderEmpty}
+              // Performance
+              drawDistance={500}
+            />
+            {/* List column buttons */}
+            <FloatingButtons
+              onGridToggle={handleListSync}
+              onReload={handleListReload}
+              isGridView={false} // Displays a grid icon (sync to grid)
+              isLoading={isRefreshing || isLoading}
+            />
+          </View>
+        </View>
+      ) : isGridView ? (
         <FeedGridView
           posts={displayPosts}
           onMediaPress={handleMediaPress}
@@ -957,10 +1148,11 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           onViewableItemsChanged={handleGridViewableItemsChanged}
           scrollToTopSignal={gridScrollSignal}
           onScrollComplete={handleGridScrollComplete}
+          containerWidth={contentWidth}
         />
       ) : !isTransitioning ? (
         <FlashList<FeedItem>
-          key={`feed-list-${feedType}-${feedId || 'default'}`}
+          key={`feed-list-${feedType}-${feedId || "default"}`}
           ref={flashListRef}
           data={feedItems}
           renderItem={renderFlashListItem}
@@ -993,13 +1185,15 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
         />
       ) : null}
 
-      {/* Floating action buttons */}
-      <FloatingButtons
-        onGridToggle={handleViewToggle}
-        onReload={handleReload}
-        isGridView={isGridView}
-        isLoading={isRefreshing || isLoading}
-      />
+      {/* Floating action buttons (Narrow screen only) */}
+      {!isLargeScreen && (
+        <FloatingButtons
+          onGridToggle={handleViewToggle}
+          onReload={handleReload}
+          isGridView={isGridView}
+          isLoading={isRefreshing || isLoading}
+        />
+      )}
 
       {/* Transition loading overlay when switching from grid to list view */}
       {isTransitioning && (
@@ -1027,6 +1221,16 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  sideBySideContainer: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  sideColumn: {
+    flex: 1,
+  },
+  divider: {
+    width: 1,
   },
   loadingContainer: {
     flex: 1,

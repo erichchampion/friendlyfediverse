@@ -51,4 +51,3 @@ describe("FeedSelector - Local feed label", () => {
     expect(getByText("Local Feed")).toBeTruthy();
   });
 });
-

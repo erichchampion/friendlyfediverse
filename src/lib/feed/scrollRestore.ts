@@ -68,4 +68,3 @@ export async function attemptScrollRestore({
   // Target not present yet; keep pending so callers can retry when data updates
   return { outcome: "missing", keepPending: true };
 }
-

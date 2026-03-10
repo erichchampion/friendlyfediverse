@@ -14,10 +14,7 @@ jest.mock("../../media/MediaGrid", () => ({
     const { View, Text, TouchableOpacity } = require("react-native");
     return (
       <View testID={testID || `media-grid-${media[0]?.id}`}>
-        <TouchableOpacity
-          testID="media-item"
-          onPress={() => onMediaPress?.(0)}
-        >
+        <TouchableOpacity testID="media-item" onPress={() => onMediaPress?.(0)}>
           <Text>{media[0]?.id}</Text>
         </TouchableOpacity>
       </View>
@@ -343,4 +340,3 @@ describe("FeedGridView - Double-Click Favorite Toggle", () => {
     expect(mockOnMediaPress).toHaveBeenCalledWith("post-2", 0);
   });
 });
-

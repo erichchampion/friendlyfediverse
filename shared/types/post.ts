@@ -3,8 +3,8 @@
  * Shared between web and React Native apps
  */
 
-import type { User, CustomEmoji } from './user';
-import type { MediaAttachment } from './media';
+import type { User, CustomEmoji } from "./user";
+import type { MediaAttachment } from "./media";
 
 export interface Post {
   id: string;
@@ -37,7 +37,7 @@ export interface Post {
   pinned?: boolean;
 }
 
-export type PostVisibility = 'public' | 'unlisted' | 'private' | 'direct';
+export type PostVisibility = "public" | "unlisted" | "private" | "direct";
 
 export interface Mention {
   id: string;
@@ -73,7 +73,7 @@ export interface Card {
   url: string;
   title: string;
   description: string;
-  type: 'link' | 'photo' | 'video' | 'rich';
+  type: "link" | "photo" | "video" | "rich";
   authorName?: string;
   authorUrl?: string;
   providerName?: string;

@@ -196,4 +196,3 @@ describe("PostContent double-click handling", () => {
     expect(mockMediaSinglePress).not.toHaveBeenCalled();
   });
 });
-

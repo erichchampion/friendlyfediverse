@@ -37,16 +37,16 @@ interface UseDelayedClickOptions {
 
 /**
  * Hook to handle delayed single-click and double-click detection
- * 
+ *
  * Works with both real timers and Jest fake timers by using setTimeout
  * to track time differences instead of Date.now()
- * 
+ *
  * @example
  * const handleClick = useDelayedClick({
  *   onSingleClick: () => openMedia(),
  *   onDoubleClick: () => toggleFavorite(),
  * });
- * 
+ *
  * <TouchableOpacity onPress={handleClick} />
  */
 export function useDelayedClick({
@@ -90,13 +90,12 @@ export function useDelayedClick({
       clickKey: ClickKey = "default",
       handlerOverrides?: Partial<ClickHandlers>,
     ) => {
-      const state =
-        clickStateRef.current.get(clickKey) ?? {
-          hasRecentClick: false,
-          singleClickTimeout: null,
-          doubleClickWindowTimeout: null,
-          handlers: { onSingleClick, onDoubleClick },
-        };
+      const state = clickStateRef.current.get(clickKey) ?? {
+        hasRecentClick: false,
+        singleClickTimeout: null,
+        doubleClickWindowTimeout: null,
+        handlers: { onSingleClick, onDoubleClick },
+      };
 
       // Always refresh handlers for this key so the latest closures are used
       state.handlers = {
@@ -142,4 +141,3 @@ export function useDelayedClick({
 
   return handleClick;
 }
-

@@ -12,7 +12,8 @@ import {
   Alert,
 } from "react-native";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Image } from "expo-image";
+import { RetryableImage as Image } from "./RetryableImage";
+import { UI_CONFIG } from "@lib/uiConfig";
 import {
   GestureHandlerRootView,
   Gesture,

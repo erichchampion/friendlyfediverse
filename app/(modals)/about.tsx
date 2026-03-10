@@ -18,13 +18,13 @@ export default function AboutPage() {
       </Text>
 
       <Text style={[styles.paragraph, { color: colors.text }]}>
-        friendlyfediverse.com is a Mastodon client focused on providing an excellent
-        video viewing experience.
+        friendlyfediverse.com is a Mastodon client focused on providing an
+        excellent video viewing experience.
       </Text>
 
       <Text style={[styles.paragraph, { color: colors.text }]}>
-        Built with React Native and Expo, friendlyfediverse.com brings the power of the
-        fediverse to your mobile device.
+        Built with React Native and Expo, friendlyfediverse.com brings the power
+        of the fediverse to your mobile device.
       </Text>
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -55,7 +55,9 @@ export default function AboutPage() {
       </Text>
       <Pressable
         accessibilityRole="link"
-        onPress={() => Linking.openURL("https://www.friendlyfediverse.com/support")}
+        onPress={() =>
+          Linking.openURL("https://www.friendlyfediverse.com/support")
+        }
       >
         <Text style={[styles.link, { color: colors.accent }]}>
           Support: friendlyfediverse.com/support
@@ -63,7 +65,9 @@ export default function AboutPage() {
       </Pressable>
       <Pressable
         accessibilityRole="link"
-        onPress={() => Linking.openURL("https://www.friendlyfediverse.com/privacy")}
+        onPress={() =>
+          Linking.openURL("https://www.friendlyfediverse.com/privacy")
+        }
       >
         <Text style={[styles.link, { color: colors.accent }]}>
           Privacy Policy: friendlyfediverse.com/privacy

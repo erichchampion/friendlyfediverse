@@ -3,9 +3,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   Linking,
 } from "react-native";
+import { RetryableImage as Image } from "../media/RetryableImage";
 import { memo, useCallback } from "react";
 import type { Card } from "@types";
 import { useTheme } from "@contexts/ThemeContext";
@@ -23,7 +23,10 @@ export interface LinkCardProps {
   onPress?: () => void;
 }
 
-export const LinkCard = memo<LinkCardProps>(function LinkCard({ card, onPress }) {
+export const LinkCard = memo<LinkCardProps>(function LinkCard({
+  card,
+  onPress,
+}) {
   const { colors } = useTheme();
 
   const handlePress = useCallback(() => {
