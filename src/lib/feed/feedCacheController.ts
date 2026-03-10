@@ -7,6 +7,7 @@
  */
 import type { Post } from "@types";
 import type { IFeedPostStore } from "./feedPostStore";
+import { generateOlderId } from "../api/mastodonRequests";
 
 export interface FeedCacheControllerFetcher {
   fetchLatest(): Promise<Post[]>;
@@ -60,6 +61,8 @@ export function createFeedCacheController(
   } = options;
 
   let olderServerExhausted = false;
+  let consecutiveEmptyOlderResults = 0;
+  const MAX_EMPTY_JUMPS = 5;
 
   return {
     async getInitialSlice(opts: GetInitialSliceOptions): Promise<Post[]> {
@@ -106,11 +109,40 @@ export function createFeedCacheController(
 
     async prefetchOlderPage(maxId: string): Promise<void> {
       if (olderServerExhausted) return;
-      const posts = await fetchOlderPage(maxId, pageSize);
+      
+      let currentMaxId = maxId;
+      let posts: Post[] = [];
+      let jumps = 0;
+
+      while (jumps <= consecutiveEmptyOlderResults && jumps < MAX_EMPTY_JUMPS) {
+        posts = await fetchOlderPage(currentMaxId, pageSize);
+        
+        if (posts && posts.length > 0) {
+          consecutiveEmptyOlderResults = 0;
+          break;
+        }
+
+        jumps++;
+        consecutiveEmptyOlderResults++;
+        
+        if (consecutiveEmptyOlderResults >= MAX_EMPTY_JUMPS) {
+          console.log(`[feedCacheController] Server exhausted after ${MAX_EMPTY_JUMPS} consecutive empty results for feed ${feedKey}`);
+          olderServerExhausted = true;
+          return;
+        }
+
+        const jumpHours = Math.pow(2, consecutiveEmptyOlderResults - 1);
+        const jumpMs = jumpHours * 60 * 60 * 1000;
+        currentMaxId = generateOlderId(maxId, jumpMs);
+        console.log(`[feedCacheController] gap detected, jumping back ${jumpHours} hours to ${currentMaxId} for feed ${feedKey}`);
+      }
+
       if (!posts || posts.length === 0) return;
+
       const allAlreadyCached = await Promise.all(
         posts.map((p) => store.hasPost(feedKey, p.id)),
       ).then((bools) => bools.every(Boolean));
+      
       if (allAlreadyCached) {
         olderServerExhausted = true;
         return;
@@ -131,6 +163,7 @@ export function createFeedCacheController(
 
     clearOlderServerExhausted(): void {
       olderServerExhausted = false;
+      consecutiveEmptyOlderResults = 0;
     },
   };
 }

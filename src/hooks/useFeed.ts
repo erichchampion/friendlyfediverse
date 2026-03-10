@@ -14,6 +14,7 @@ import { FEED_CONFIG, UI_CONFIG } from "@/config";
 import { useAuth } from "@contexts/AuthContext";
 import {
   getDirectionalTimelinePaginator,
+  generateOlderId,
   type TimelinePaginator,
 } from "@lib/api/mastodonRequests";
 import { createFeedPostStore } from "@lib/feed/feedPostStore";
@@ -1012,11 +1013,20 @@ export function useFeed(options: UseFeedOptions) {
         lastFetchedOlderPostIdAtIteratorCreationRef.current =
           lastFetchedAtCreation;
 
+        // If we are retrying with the same lastFetched, jump back in time to skip gaps
+        let currentMaxId = maxId;
+        if (isRetryingWithSameLastFetched && consecutiveEmptyResultsRef.current > 0) {
+           const jumpHours = Math.pow(2, consecutiveEmptyResultsRef.current - 1); 
+           const jumpMs = jumpHours * 60 * 60 * 1000;
+           currentMaxId = generateOlderId(maxId, jumpMs);
+           console.log(`[useFeed] loadMore: Gap detected, jumping back ${jumpHours} hours to ${currentMaxId}`);
+        }
+
         // Update the maxId we're using for this iterator
-        lastOlderMaxIdRef.current = maxId;
+        lastOlderMaxIdRef.current = currentMaxId;
 
         console.log(
-          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"}, retryingWithSame=${isRetryingWithSameLastFetched})`,
+          `[useFeed] loadMore: Initializing older posts iterator with maxId=${currentMaxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"}, retryingWithSame=${isRetryingWithSameLastFetched})`,
         );
 
         // Create a new iterator with maxId from the last fetched post (or oldest if none)
@@ -1026,7 +1036,7 @@ export function useFeed(options: UseFeedOptions) {
           config.feedType,
           config.feedId,
           "older",
-          { maxId, limit: config.limit },
+          { maxId: currentMaxId, limit: config.limit },
         );
 
         // Store the retry flag for use when checking iterator results (across function calls)

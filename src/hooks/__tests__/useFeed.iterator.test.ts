@@ -34,6 +34,7 @@ jest.mock("@lib/api/mastodonRequests", () => ({
   getDirectionalTimelinePaginator: jest.fn(() => ({
     next: jest.fn().mockResolvedValue({ done: true, value: undefined }),
   })),
+  generateOlderId: jest.fn((id, ms) => id),
 }));
 jest.mock("@contexts/AuthContext", () => ({
   useAuth: () => ({

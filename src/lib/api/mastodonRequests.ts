@@ -24,6 +24,28 @@ export interface PaginationOptions {
 }
 
 /**
+ * Mastodon IDs are Snowflake IDs where the first 48 bits represent the timestamp in milliseconds
+ * This function subtracts milliseconds from a Snowflake ID to generate a synthetic older ID.
+ * Useful for jumping over gaps in feeds when pagination iterators exhaust unexpectedly.
+ *
+ * @param id The base Mastodon ID
+ * @param subtractMs Milliseconds to subtract (e.g., 24 * 60 * 60 * 1000 for 1 day)
+ * @returns A new synthetic ID, or the original ID if parsing fails
+ */
+export function generateOlderId(id: string, subtractMs: number): string {
+  try {
+    const idBig = BigInt(id);
+    const timestampMs = idBig >> 16n;
+    const newTimestampMs = timestampMs - BigInt(Math.max(0, subtractMs));
+    if (newTimestampMs <= 0n) return "0";
+    return (newTimestampMs << 16n).toString();
+  } catch (e) {
+    console.warn("[mastodonRequests] Failed to parse ID for gap jumping:", id);
+    return id;
+  }
+}
+
+/**
  * Build a timeline iterator based on feed type
  * This returns the masto.js async iterable that handles pagination automatically
  */
