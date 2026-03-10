@@ -12,16 +12,16 @@ import { generateOlderId } from "../api/mastodonRequests";
 export interface FeedCacheControllerFetcher {
   fetchLatest(): Promise<Post[]>;
   fetchContextAround(targetPostId: string): Promise<Post[]>;
-  fetchOlderPage(maxId: string, limit: number): Promise<Post[]>;
-  fetchNewerPage(sinceId: string, limit: number): Promise<Post[]>;
+  getOlderPaginator(maxId: string, limit: number): any; // Paginator that preserves Link headers
+  getNewerPaginator(sinceId: string, limit: number): any;
 }
 
 export interface FeedCacheControllerOptions {
   feedKey: string;
   fetchLatest: () => Promise<Post[]>;
   fetchContextAround: (targetPostId: string) => Promise<Post[]>;
-  fetchOlderPage: (maxId: string, limit: number) => Promise<Post[]>;
-  fetchNewerPage: (sinceId: string, limit: number) => Promise<Post[]>;
+  getOlderPaginator: (maxId: string, limit: number) => any;
+  getNewerPaginator: (sinceId: string, limit: number) => any;
   pageSize?: number;
   contextSize?: number;
 }
@@ -54,8 +54,8 @@ export function createFeedCacheController(
     feedKey,
     fetchLatest,
     fetchContextAround,
-    fetchOlderPage,
-    fetchNewerPage,
+    getOlderPaginator,
+    getNewerPaginator,
     pageSize = DEFAULT_PAGE_SIZE,
     contextSize = DEFAULT_CONTEXT_SIZE,
   } = options;
@@ -63,6 +63,8 @@ export function createFeedCacheController(
   let olderServerExhausted = false;
   let consecutiveEmptyOlderResults = 0;
   const MAX_EMPTY_JUMPS = 5;
+  let olderPaginator: any = null;
+  let newerPaginator: any = null;
 
   return {
     async getInitialSlice(opts: GetInitialSliceOptions): Promise<Post[]> {
@@ -110,20 +112,35 @@ export function createFeedCacheController(
     async prefetchOlderPage(maxId: string): Promise<void> {
       if (olderServerExhausted) return;
       
-      let currentMaxId = maxId;
       let posts: Post[] = [];
       let jumps = 0;
+      let currentMaxId = maxId;
+
+      // Ensure we have an active Native Iterator, using maxId as the initial starting point
+      if (!olderPaginator) {
+        olderPaginator = getOlderPaginator(currentMaxId, pageSize);
+      }
 
       while (jumps <= consecutiveEmptyOlderResults && jumps < MAX_EMPTY_JUMPS) {
-        posts = await fetchOlderPage(currentMaxId, pageSize);
-        
+        // Await the native Mastodon iterator `.next()` (automatically tracks opaque/Snowflake Links internally)
+        const result = await olderPaginator.next();
+        posts = result.value || [];
+
         if (posts && posts.length > 0) {
           consecutiveEmptyOlderResults = 0;
           break;
         }
 
+        // If the native iterator is NOT truly exhausted, just natively empty, allow it to continue cleanly
+        if (!result.done) {
+          consecutiveEmptyOlderResults++;
+          return; // Wait for next caller scroll cycle to try again natively
+        }
+
+        // If the native iterator completely completely gives up, initiate gap jump sequence
         jumps++;
         consecutiveEmptyOlderResults++;
+        olderPaginator = null; // Discard broken native iterator
         
         if (consecutiveEmptyOlderResults >= MAX_EMPTY_JUMPS) {
           console.log(`[feedCacheController] Server exhausted after ${MAX_EMPTY_JUMPS} consecutive empty results for feed ${feedKey}`);
@@ -131,10 +148,20 @@ export function createFeedCacheController(
           return;
         }
 
+        // Exclude completely opaque feeds from gap jumping (favourites/bookmarks cannot synthesize older IDs)
+        if (feedKey.includes("favourites") || feedKey.includes("bookmarks")) {
+           console.log(`[feedCacheController] Opaque feed type completely exhausted. Feed: ${feedKey}`);
+           olderServerExhausted = true;
+           return;
+        }
+
         const jumpHours = Math.pow(2, consecutiveEmptyOlderResults - 1);
         const jumpMs = jumpHours * 60 * 60 * 1000;
         currentMaxId = generateOlderId(maxId, jumpMs);
         console.log(`[feedCacheController] gap detected, jumping back ${jumpHours} hours to ${currentMaxId} for feed ${feedKey}`);
+        
+        // Seed the gap-jumped retry iterator
+        olderPaginator = getOlderPaginator(currentMaxId, pageSize);
       }
 
       if (!posts || posts.length === 0) return;
@@ -145,16 +172,22 @@ export function createFeedCacheController(
       
       if (allAlreadyCached) {
         olderServerExhausted = true;
+        olderPaginator = null;
         return;
       }
       await store.addPosts(feedKey, posts);
     },
 
     async prefetchNewerPage(sinceId: string): Promise<void> {
-      const posts = await fetchNewerPage(sinceId, pageSize);
+      if (!newerPaginator) {
+        newerPaginator = getNewerPaginator(sinceId, pageSize);
+      }
+      const result = await newerPaginator.next();
+      const posts = result.value || [];
       if (posts && posts.length > 0) {
         await store.addPosts(feedKey, posts);
       }
+      if (result.done) newerPaginator = null;
     },
 
     isOlderServerExhausted(): boolean {

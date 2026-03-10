@@ -629,7 +629,7 @@ export function useFeed(options: UseFeedOptions) {
       feedControllerRef.current = injectedFeedCacheController;
       return;
     }
-    if (!enableCache || !cacheKey) {
+    if (!enableCache || !cacheKey || feedType === "favourites" || feedType === "bookmarks") {
       feedControllerRef.current = null;
       feedStoreRef.current = null;
       return;
@@ -662,37 +662,73 @@ export function useFeed(options: UseFeedOptions) {
         const descendants = context.descendants.map(transformStatus);
         return [...descendants.reverse(), anchorPost, ...ancestors];
       },
-      fetchOlderPage: async (maxId: string, pageLimit: number) => {
-        const activeClient = await getActiveClient();
-        if (!activeClient) throw new Error("No active client");
-        const paginator = getDirectionalTimelinePaginator(
-          activeClient.client,
-          feedType,
-          feedId,
-          "older",
-          { maxId, limit: pageLimit },
-        );
-        const result = await withRetry(async () => {
-          const page = await paginator.next();
-          return page.value || [];
-        }, RequestPriority.LOW);
-        return result.map(transformStatus);
+      getOlderPaginator: (maxId: string, pageLimit: number) => {
+        // Warning: activeClient is requested asynchronously but getOlderPaginator returns immediately
+        // The iterator implementation inside mastodonRequests handles lazy resolution natively
+        // BUT we must supply the active client synchronously here. 
+        // We will fetch it before returning the paginator wrapper.
+        let activeClient: any = null;
+        const fetchClientWrapper = async () => {
+           if (!activeClient) activeClient = await getActiveClient();
+           if (!activeClient) throw new Error("No active client");
+           return activeClient;
+        };
+        
+        // Return an iterator adapter that resolves the client first
+        return {
+           async next() {
+              const clientObj = await fetchClientWrapper();
+              // Create paginator lazily once client is ready, store it on the adapter
+              if (!(this as any)._internalPaginator) {
+                 (this as any)._internalPaginator = getDirectionalTimelinePaginator(
+                    clientObj.client,
+                    feedType,
+                    feedId,
+                    "older",
+                    { maxId, limit: pageLimit }
+                 );
+              }
+              const result = await withRetry(async () => {
+                 return await (this as any)._internalPaginator.next();
+              }, RequestPriority.LOW);
+              
+              if (result.value) {
+                 result.value = result.value.map(transformStatus);
+              }
+              return result;
+           }
+        };
       },
-      fetchNewerPage: async (sinceId: string, pageLimit: number) => {
-        const activeClient = await getActiveClient();
-        if (!activeClient) throw new Error("No active client");
-        const paginator = getDirectionalTimelinePaginator(
-          activeClient.client,
-          feedType,
-          feedId,
-          "newer",
-          { sinceId, limit: pageLimit },
-        );
-        const result = await withRetry(async () => {
-          const page = await paginator.next();
-          return page.value || [];
-        }, RequestPriority.LOW);
-        return result.map(transformStatus);
+      getNewerPaginator: (sinceId: string, pageLimit: number) => {
+        let activeClient: any = null;
+        const fetchClientWrapper = async () => {
+           if (!activeClient) activeClient = await getActiveClient();
+           if (!activeClient) throw new Error("No active client");
+           return activeClient;
+        };
+        
+        return {
+           async next() {
+              const clientObj = await fetchClientWrapper();
+              if (!(this as any)._internalPaginator) {
+                 (this as any)._internalPaginator = getDirectionalTimelinePaginator(
+                    clientObj.client,
+                    feedType,
+                    feedId,
+                    "newer",
+                    { sinceId, limit: pageLimit }
+                 );
+              }
+              const result = await withRetry(async () => {
+                 return await (this as any)._internalPaginator.next();
+              }, RequestPriority.LOW);
+              
+              if (result.value) {
+                 result.value = result.value.map(transformStatus);
+              }
+              return result;
+           }
+        };
       },
     });
   }, [
@@ -1063,20 +1099,19 @@ export function useFeed(options: UseFeedOptions) {
         }
 
         // Update the maxId we're using for this iterator
-        lastOlderMaxIdRef.current = currentMaxId;
+        lastOlderMaxIdRef.current = maxId;
 
         console.log(
           `[useFeed] loadMore: Initializing older posts iterator with maxId=${currentMaxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"}, retryingWithSame=${isRetryingWithSameLastFetched})`,
         );
 
-        // Create a new iterator with maxId from the last fetched post (or oldest if none)
-        // This iterator will paginate through posts older than this maxId
+        // Create a new iterator with maxId ONLY on the very first initialization or after a gap jump
         olderPaginatorRef.current = getDirectionalTimelinePaginator(
           client,
           config.feedType,
           config.feedId,
           "older",
-          { maxId: currentMaxId, limit: config.limit },
+          { maxId, limit: config.limit },
         );
 
         // Store the retry flag for use when checking iterator results (across function calls)
@@ -1099,32 +1134,22 @@ export function useFeed(options: UseFeedOptions) {
 
       const result = await olderPaginatorRef.current.next();
 
-      // Handle iterator exhaustion
-      // IMPORTANT: When an iterator returns done: true, it means that particular iterator's
-      // range is exhausted, NOT the entire feed. We should reset the iterator and keep
-      // hasMore=true to allow creating a new iterator on the next call.
-      // However, if this iterator was created with retryingWithSame=true (meaning we're
-      // retrying with the same maxId), then we've truly reached the end.
       if (result.done) {
-        // Check if we're retrying with the same lastFetched value
-        // If so, this iterator was created with the same maxId as the previous one,
-        // which means no new posts were fetched. Mark as exhausted.
-        const paginatorFlag = (olderPaginatorRef.current as any)
-          ?._isRetryingWithSameLastFetched;
-        const isRetryingWithSameLastFetched = paginatorFlag === true;
-
         console.log(
-          `[useFeed] loadMore: Iterator done (range exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}, resetting to allow new iterator`,
+          `[useFeed] loadMore: Native Iterator done (Link header exhausted), consecutiveEmptyResults=${consecutiveEmptyResultsRef.current}, max=${MAX_CONSECUTIVE_EMPTY_RESULTS}`,
         );
-        // Check if we've had too many consecutive empty results (iterator returns empty then done)
-        // with the same maxId - this indicates true exhaustion
+        
+        // Since the native iterator naturally exhausted, we must initiate gap jumping as a fallback.
+        consecutiveEmptyResultsRef.current++;
+        olderPaginatorRef.current = null; // Destroy the exhausted native iterator
+
+        const MAX_EMPTY_JUMPS = 5;
         if (
-          consecutiveEmptyResultsRef.current >= MAX_CONSECUTIVE_EMPTY_RESULTS
+          consecutiveEmptyResultsRef.current >= MAX_EMPTY_JUMPS
         ) {
           console.log(
-            `[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty results (>= ${MAX_CONSECUTIVE_EMPTY_RESULTS}), truly exhausted`,
+            `[useFeed] loadMore: ${consecutiveEmptyResultsRef.current} consecutive empty leaps (>= ${MAX_EMPTY_JUMPS}), truly exhausted`,
           );
-          olderPaginatorRef.current = null;
           consecutiveEmptyResultsRef.current = 0;
           dispatch({
             type: "LOAD_MORE_SUCCESS",
@@ -1133,15 +1158,47 @@ export function useFeed(options: UseFeedOptions) {
           });
           return;
         }
-        // Reset iterator ref to null to allow recreation with updated maxId on next call
-        // Keep hasMore=true - allow iterators to continue until we hit the consecutive empty threshold
-        olderPaginatorRef.current = null;
+
+        // If the feed is completely opaque, we cannot use ID jumping math. It is truly exhausted.
+        if (config.feedType === "favourites" || config.feedType === "bookmarks") {
+           console.log(`[useFeed] loadMore: Native Link header for opaque feed exhausted. Feed: ${config.feedType}`);
+           consecutiveEmptyResultsRef.current = 0;
+           dispatch({
+             type: "LOAD_MORE_SUCCESS",
+             posts: state.posts,
+             hasMore: false,
+           });
+           return;
+        }
+
+        const jumpHours = Math.pow(2, consecutiveEmptyResultsRef.current - 1);
+        const jumpMs = jumpHours * 60 * 60 * 1000;
+        const currentMaxId = lastOlderMaxIdRef.current || "";
+        const jumpedMaxId = generateOlderId(currentMaxId, jumpMs);
+        console.log(`[useFeed] loadMore: Gap detected! Fallback jumping back ${jumpHours} hours to ${jumpedMaxId}`);
+
+        // We jump the maxId directly, but we MUST keep hasMore=true so the next user scroll seamlessly builds
+        // the new iterator utilizing the modified maxId.
+        lastFetchedOlderPostIdRef.current = null; 
+        lastFetchedOlderPostIdAtIteratorCreationRef.current = null;
+        // Inject the synthetically jumped maxId back into the timeline state to force the next paginator creation to use it
+        if (state.posts.length > 0) {
+           const oldestRendered = state.posts[state.posts.length - 1];
+           // We technically mutate the post ID here just for the paginator's boundary, though it gets discarded internally
+           oldestRendered.id = jumpedMaxId;
+        }
+
         dispatch({
           type: "LOAD_MORE_SUCCESS",
           posts: state.posts,
-          hasMore: true, // Keep true to allow creating new iterator
+          hasMore: true, // Keep true to allow the next scroll to create a new gap-jumped iterator
         });
         return;
+      }
+
+      // If we got real posts naturally from the Link header, reset the consecutive jump tracking
+      if (result.value && result.value.length > 0) {
+        consecutiveEmptyResultsRef.current = 0;
       }
 
       // Check for empty array (but iterator not done yet)
@@ -1373,9 +1430,19 @@ export function useFeed(options: UseFeedOptions) {
       // Same strategy as loadMore: distinguish between done: true vs empty array
       if (result.done) {
         console.log("[useFeed] loadNewer: Iterator done (truly exhausted)");
-        // Reset iterator ref to null to allow recreation with updated params on next call
+        
+        // Exclude completely opaque feeds from gap jumping (favourites/bookmarks cannot synthesize older IDs)
+        if (config.feedType === "favourites" || config.feedType === "bookmarks") {
+           console.log(`[useFeed] loadNewer: Native Link header for opaque feed exhausted. Feed: ${config.feedType}`);
+           newerPaginatorRef.current = null;
+           dispatch({ type: "LOAD_NEWER_ERROR", error: null });
+           return;
+        }
+
+        // TODO: We could implement `generateNewerId` here eventually if we wanted ascending gap jumps, 
+        // but typically finding *newer* posts doesn't suffer from gaps since they are fresh. 
+        // For now, if moving forward natively exhausts, we simply destroy the iterator.
         newerPaginatorRef.current = null;
-        // Don't dispatch if no new posts - prevents unnecessary re-render
         dispatch({ type: "LOAD_NEWER_ERROR", error: null });
         return;
       }

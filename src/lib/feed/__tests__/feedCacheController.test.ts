@@ -48,16 +48,22 @@ describe("FeedCacheController", () => {
   let store: ReturnType<typeof createFeedPostStore>;
   let fetchLatest: jest.Mock;
   let fetchContextAround: jest.Mock;
-  let fetchOlderPage: jest.Mock;
-  let fetchNewerPage: jest.Mock;
+  let getOlderPaginator: jest.Mock;
+  let getNewerPaginator: jest.Mock;
 
   beforeEach(async () => {
     store = createFeedPostStore();
     await store.clearAll();
     fetchLatest = jest.fn();
     fetchContextAround = jest.fn();
-    fetchOlderPage = jest.fn();
-    fetchNewerPage = jest.fn();
+    
+    // We mock the iterators to just return `{ value: [posts], done: boolean }`
+    getOlderPaginator = jest.fn().mockReturnValue({
+      next: jest.fn().mockResolvedValue({ value: [], done: false })
+    });
+    getNewerPaginator = jest.fn().mockReturnValue({
+      next: jest.fn().mockResolvedValue({ value: [], done: false })
+    });
   });
 
   describe("getInitialSlice (no target)", () => {
@@ -69,8 +75,8 @@ describe("FeedCacheController", () => {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       const result = await controller.getInitialSlice({ limit: 20 });
@@ -96,8 +102,8 @@ describe("FeedCacheController", () => {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       const result = await controller.getInitialSlice({
@@ -120,8 +126,8 @@ describe("FeedCacheController", () => {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       const result = await controller.getInitialSlice({
@@ -151,14 +157,14 @@ describe("FeedCacheController", () => {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       const result = await controller.getOlderSlice("3", 5);
 
       expect(result.map((p) => p.id)).toEqual(["2", "1"]);
-      expect(fetchOlderPage).not.toHaveBeenCalled();
+      expect(getOlderPaginator).not.toHaveBeenCalled();
     });
   });
 
@@ -175,8 +181,8 @@ describe("FeedCacheController", () => {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       const result = await controller.getNewerSlice("2", 5);
@@ -192,29 +198,33 @@ describe("FeedCacheController", () => {
         makePost("99"),
         makePost("98"),
       ]);
-      fetchOlderPage.mockResolvedValue([makePost("99"), makePost("98")]);
+      getOlderPaginator.mockReturnValue({
+        next: jest.fn().mockResolvedValue({ value: [makePost("99"), makePost("98")], done: false })
+      });
 
       const controller = createFeedCacheController(store, {
         feedKey: FEED_KEY,
         fetchLatest,
         fetchContextAround,
-        fetchOlderPage,
-        fetchNewerPage,
+        getOlderPaginator,
+        getNewerPaginator,
       });
 
       expect(controller.isOlderServerExhausted()).toBe(false);
 
       await controller.prefetchOlderPage("100");
 
-      expect(fetchOlderPage).toHaveBeenCalledWith("100", 20);
+      expect(getOlderPaginator).toHaveBeenCalledWith("100", 20);
       expect(controller.isOlderServerExhausted()).toBe(true);
 
       controller.clearOlderServerExhausted();
       expect(controller.isOlderServerExhausted()).toBe(false);
 
-      fetchOlderPage.mockResolvedValue([makePost("97"), makePost("96")]);
+      getOlderPaginator.mockReturnValue({
+        next: jest.fn().mockResolvedValue({ value: [makePost("97"), makePost("96")], done: false })
+      });
       await controller.prefetchOlderPage("98");
-      expect(fetchOlderPage).toHaveBeenCalledWith("98", 20);
+      expect(getOlderPaginator).toHaveBeenCalledWith("98", 20);
       const fromStore = await store.getPostsRange(FEED_KEY, {
         olderThanId: "98",
         limit: 10,
