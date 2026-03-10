@@ -12,6 +12,7 @@ import {
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  Platform,
 } from "react-native";
 import {
   FlashList,
@@ -90,6 +91,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
 
   const { width } = useWindowDimensions();
   const isLargeScreen = width >= 768;
+  const contentWidth = Platform.OS === "web" ? Math.min(width, 1024) : width;
 
   const { feedType, feedId } = parseFeedParams(routeId || "public");
 
@@ -1079,7 +1081,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
               onViewableItemsChanged={handleGridViewableItemsChanged}
               scrollToTopSignal={gridScrollSignal}
               onScrollComplete={handleGridScrollComplete}
-              containerWidth={Math.floor((width - 1) / 2)}
+              containerWidth={Math.floor((contentWidth - 1) / 2)}
             />
             {/* Grid column buttons */}
             <FloatingButtons
@@ -1146,7 +1148,7 @@ export function FeedScreenBase({ routeId }: { routeId: string }) {
           onViewableItemsChanged={handleGridViewableItemsChanged}
           scrollToTopSignal={gridScrollSignal}
           onScrollComplete={handleGridScrollComplete}
-          containerWidth={width}
+          containerWidth={contentWidth}
         />
       ) : !isTransitioning ? (
         <FlashList<FeedItem>
