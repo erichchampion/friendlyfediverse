@@ -56,7 +56,10 @@ jest.mock("@lib/api/timeline", () => ({
     bookmarked: false,
   }),
 }));
-jest.mock("@lib/api/mastodonRequests");
+jest.mock("@lib/api/mastodonRequests", () => ({
+  getDirectionalTimelinePaginator: jest.fn(),
+  generateOlderId: jest.fn((id) => `${id}-jumped`),
+}));
 jest.mock("@contexts/AuthContext", () => ({
   useAuth: () => ({
     instance: { id: "test-instance", url: "https://test.social" },
@@ -238,70 +241,59 @@ describe("useFeed - Iterator Exhaustion Debug", () => {
     });
     expect(iterator1CallCount).toBe(2); // Second call returned empty
 
-    // Call loadMore again - iterator1 should return done, iterator should be reset
+    // Call loadMore again - iterator1 should return done, iterator should be reset and gap jump initialized
     await act(async () => {
       await result.current.loadMore();
     });
     expect(iterator1CallCount).toBe(3); // Third call returned done
-    expect(paginatorCallCount).toBe(1); // Still using first iterator
+    expect(paginatorCallCount).toBe(1); // Still using first iterator since loadMore completed successfully by prepping jump
 
-    // Call loadMore again - should create iterator2 with same maxId
-    await act(async () => {
-      await result.current.loadMore();
-    });
-    expect(paginatorCallCount).toBe(2); // Created second iterator
-    expect(iterator2CallCount).toBe(1); // First call returned empty
+    // Continue calling loadMore to iterate through the empty gaps
+    // Wait for the state to settle before making the next call
+    
+    // After iterator1 returns done, it sets maxId for the gap jump but doesn't immediately create iter2.
+    // Gap jump #1 (iterator 2): Empty, then Done
+    await act(async () => { await result.current.loadMore(); });
+    // This loadMore constructs iter 2 and calls next() which returns empty.
+    expect(paginatorCallCount).toBe(2); 
+    expect(iterator2CallCount).toBe(1);
 
-    // Call loadMore again - iterator2 should return done
-    await act(async () => {
-      await result.current.loadMore();
-    });
-    expect(iterator2CallCount).toBe(2); // Second call returned done
+    await act(async () => { await result.current.loadMore(); });
+    // This loadMore calls next() on iter 2 which returns done, prepping iter 3.
+    expect(iterator2CallCount).toBe(2);
+    expect(paginatorCallCount).toBe(2); 
 
-    // Call loadMore again - should create iterator3 with same maxId
-    await act(async () => {
-      await result.current.loadMore();
-    });
-    expect(paginatorCallCount).toBe(3); // Created third iterator
-    expect(iterator3CallCount).toBe(1); // First call returned empty
+    // Gap jump #2 (iterator 3): Empty, then Done
+    await act(async () => { await result.current.loadMore(); });
+    // Iter3 created and empty
+    expect(paginatorCallCount).toBe(3);
+    expect(iterator3CallCount).toBe(1);
+    await act(async () => { await result.current.loadMore(); });
+    // Iter3 done
+    expect(iterator3CallCount).toBe(2);
+    
+    // Gap jump #3 (iterator 4): Empty, then Done
+    await act(async () => { await result.current.loadMore(); });
+    // Iter4 created and empty
+    expect(paginatorCallCount).toBe(4);
+    expect(iterator4CallCount).toBe(1);
+    await act(async () => { await result.current.loadMore(); });
+    // Iter4 done
+    expect(iterator4CallCount).toBe(2);
 
-    // Call loadMore again - iterator3 should return done (counter = 2 at this point)
-    await act(async () => {
-      await result.current.loadMore();
-    });
-    expect(iterator3CallCount).toBe(2); // Second call returned done
-    expect(paginatorCallCount).toBe(3); // Created third iterator
-
-    // After 5 consecutive empty results, should mark as exhausted
-    // Counter progression:
-    // - iterator1: got posts, so counter reset to 0
-    // - iterator2 created (retrying): counter = 1, returns empty then done
-    // - iterator3 created (retrying): counter = 2, returns empty then done
-    // - iterator4 created (retrying): counter = 3, returns empty then done
-    // - iterator5 created (retrying): counter = 4, returns empty then done
-    // - iterator6 created (retrying): counter = 5, returns empty then done -> mark exhausted
-
-    // Continue calling loadMore until exhausted (should be 2 more iterations to reach 5)
-    // Iterator 4
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        await result.current.loadMore();
-      });
-    }
-
-    // Iterator 5
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        await result.current.loadMore();
-      });
-    }
-
-    // Iterator 6 - this should mark as exhausted when done
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        await result.current.loadMore();
-      });
-    }
+    // Gap jump #4 (iterator 5): Empty, then Done -> Exhausted
+    await act(async () => { await result.current.loadMore(); });
+    // Iter5 created and empty
+    expect(paginatorCallCount).toBe(5);
+    expect(iterator5CallCount).toBe(1);
+    await act(async () => { await result.current.loadMore(); });
+    // After iterator 5 completes, exhaustion should trigger.
+    await waitFor(
+      () => {
+        expect(result.current.hasMore).toBe(false);
+      },
+      { timeout: 5000 },
+    );
 
     // After iterator6 returns done with counter = 5, should mark as exhausted
     await waitFor(

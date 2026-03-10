@@ -17,8 +17,8 @@ import {
   useEffect,
   useLayoutEffect,
 } from "react";
-import { Image } from "expo-image";
 import type { Post, MediaAttachment, Card } from "@types";
+import { RetryableImage as Image } from "../media/RetryableImage";
 import { useTheme } from "@contexts/ThemeContext";
 import { MediaGrid } from "../media/MediaGrid";
 import { stripHtml } from "@lib/utils/html";

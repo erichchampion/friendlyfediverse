@@ -1072,37 +1072,15 @@ export function useFeed(options: UseFeedOptions) {
           lastFetchedOlderPostIdAtIteratorCreationRef.current;
 
         // Check if we're retrying with the same lastFetched value BEFORE updating the ref
-        // This means no new posts were fetched since the last iterator was created
-        const isRetryingWithSameLastFetched =
-          previousLastFetched !== null &&
-          previousLastFetched === lastFetchedAtCreation;
-
-        // If we're using the same maxId again, increment the consecutive empty results counter
-        // Otherwise, reset it (we got new posts, so reset the counter)
-        if (isRetryingWithSameLastFetched) {
-          consecutiveEmptyResultsRef.current += 1;
-        } else {
-          consecutiveEmptyResultsRef.current = 0;
-        }
-
-        // Update the ref AFTER the comparison
-        lastFetchedOlderPostIdAtIteratorCreationRef.current =
-          lastFetchedAtCreation;
-
-        // If we are retrying with the same lastFetched, jump back in time to skip gaps
-        let currentMaxId = maxId;
-        if (isRetryingWithSameLastFetched && consecutiveEmptyResultsRef.current > 0) {
-           const jumpHours = Math.pow(2, consecutiveEmptyResultsRef.current - 1); 
-           const jumpMs = jumpHours * 60 * 60 * 1000;
-           currentMaxId = generateOlderId(maxId, jumpMs);
-           console.log(`[useFeed] loadMore: Gap detected, jumping back ${jumpHours} hours to ${currentMaxId}`);
-        }
+        // With Native Iterators, we don't attempt to track retry conditions directly on iterator boundaries anymore
+        // since the internal paginator natively guarantees gap fulfillment or terminates via Link exhaustion natively.
+        // We will trigger our fallback leap exclusively at the point of native Link exhaustion result.done=true.
 
         // Update the maxId we're using for this iterator
         lastOlderMaxIdRef.current = maxId;
 
         console.log(
-          `[useFeed] loadMore: Initializing older posts iterator with maxId=${currentMaxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"}, retryingWithSame=${isRetryingWithSameLastFetched})`,
+          `[useFeed] loadMore: Initializing older posts iterator with maxId=${maxId} (lastFetched=${lastFetchedAtCreation ?? "none"}, previousLastFetched=${previousLastFetched ?? "none"})`,
         );
 
         // Create a new iterator with maxId ONLY on the very first initialization or after a gap jump
@@ -1114,10 +1092,6 @@ export function useFeed(options: UseFeedOptions) {
           { maxId, limit: config.limit },
         );
 
-        // Store the retry flag for use when checking iterator results (across function calls)
-        // This flag persists on the paginator object, so we can check it even after multiple next() calls
-        (olderPaginatorRef.current as any)._isRetryingWithSameLastFetched =
-          isRetryingWithSameLastFetched;
         // Track if this is the first next() call on this iterator (only mark as exhausted on first call)
         (olderPaginatorRef.current as any)._nextCallCount = 0;
       }

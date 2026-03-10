@@ -7,7 +7,7 @@ import {
   Platform,
 } from "react-native";
 import { useState, useCallback, useRef } from "react";
-import { Image } from "expo-image";
+import { RetryableImage as Image } from "./RetryableImage";
 import { ImageViewer } from "./ImageViewer";
 import { VideoPlayer } from "./VideoPlayer";
 import type { MediaAttachment } from "@types";

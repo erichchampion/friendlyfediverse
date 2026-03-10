@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Image, Text, StyleSheet, ViewStyle } from "react-native";
+import { View, Text, StyleSheet, ViewStyle } from "react-native";
+import { RetryableImage as Image } from "../media/RetryableImage";
 import { useTheme } from "@contexts/ThemeContext";
 
 /**
