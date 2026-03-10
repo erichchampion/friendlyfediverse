@@ -189,7 +189,7 @@ type FeedAction =
   | { type: "LOAD_MORE_ERROR"; error: string }
   | { type: "LOAD_NEWER_START" }
   | { type: "QUEUE_NEWER_POSTS"; newPosts: Post[] }
-  | { type: "LOAD_NEWER_ERROR"; error: string }
+  | { type: "LOAD_NEWER_ERROR"; error: string | null }
   | { type: "APPLY_PENDING_NEW_POSTS" }
   | { type: "REMOVE_POST"; postId: string }
   | { type: "SET_POSTS"; posts: Post[]; pendingNewPosts?: Post[] }
@@ -722,6 +722,30 @@ export function useFeed(options: UseFeedOptions) {
       const controller = feedControllerRef.current;
 
       if (controller) {
+        const store = feedStoreRef.current;
+        if (store && config.enableCache && config.cacheKey) {
+          try {
+            const existingPosts = await store.getAllPosts(config.cacheKey);
+            if (existingPosts.length === 0) {
+              const cached = await storageService.getCachedPosts(config.cacheKey);
+              if (cached && cached.length > 0) {
+                const isValid = await storageService.isCacheValid(
+                  config.cacheKey,
+                  CACHE_EXPIRATION.FEED,
+                );
+                if (isValid) {
+                  await store.addPosts(config.cacheKey, cached);
+                  console.log(
+                    "[useFeed] Hydrated feedPostStore with " + cached.length + " posts from cross-session storage",
+                  );
+                }
+              }
+            }
+          } catch (err) {
+            console.error("[useFeed] Error hydrating cache:", err);
+          }
+        }
+
         const posts = await controller.getInitialSlice({ limit: config.limit });
         const boundedPosts = trimPostsToLimit(
           posts,
@@ -760,9 +784,17 @@ export function useFeed(options: UseFeedOptions) {
       });
 
       if (config.enableCache && config.cacheKey) {
-        await storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          await storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading feed:", error);
@@ -811,9 +843,17 @@ export function useFeed(options: UseFeedOptions) {
       dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
 
       if (config.enableCache && config.cacheKey) {
-        await storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          await storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error refreshing feed:", error);
@@ -1169,9 +1209,17 @@ export function useFeed(options: UseFeedOptions) {
 
       // Save to cache asynchronously
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, boundedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, boundedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading more posts:", error);
@@ -1387,9 +1435,17 @@ export function useFeed(options: UseFeedOptions) {
 
       // Save to cache asynchronously
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, boundedSnapshot)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.getAllPosts(cacheKey).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, boundedSnapshot)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     } catch (error) {
       console.error("[useFeed] Error loading newer posts:", error);
@@ -1529,9 +1585,17 @@ export function useFeed(options: UseFeedOptions) {
 
         // Save to cache
         if (config.enableCache && config.cacheKey) {
-          await storageService
-            .saveCachedPosts(config.cacheKey, boundedPosts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
+          const store = feedStoreRef.current;
+          const cacheKey = config.cacheKey;
+          if (store) {
+            store.getAllPosts(cacheKey).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          } else {
+            await storageService
+              .saveCachedPosts(cacheKey, boundedPosts)
+              .catch((err) => console.error("[useFeed] Cache save error:", err));
+          }
         }
       } catch (error) {
         console.error("[useFeed] Error jumping to post:", error);
@@ -1620,9 +1684,17 @@ export function useFeed(options: UseFeedOptions) {
         resetIterators();
 
         if (config.enableCache && config.cacheKey) {
-          await storageService
-            .saveCachedPosts(config.cacheKey, posts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
+          const store = feedStoreRef.current;
+          const cacheKey = config.cacheKey;
+          if (store) {
+            store.getAllPosts(cacheKey).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          } else {
+            await storageService
+              .saveCachedPosts(cacheKey, posts)
+              .catch((err) => console.error("[useFeed] Cache save error:", err));
+          }
         }
       } catch (error) {
         console.error("[useFeed] Error loading from anchor:", error);
@@ -1649,10 +1721,20 @@ export function useFeed(options: UseFeedOptions) {
       // Update cache
       const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
-        const updatedPosts = state.posts.filter((post) => post.id !== postId);
-        storageService
-          .saveCachedPosts(config.cacheKey, updatedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          store.removePost(cacheKey, postId).then(() => {
+            return store.getAllPosts(cacheKey);
+          }).then(postsToSave => {
+            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+          });
+        } else {
+          const updatedPosts = state.posts.filter((post) => post.id !== postId);
+          storageService
+            .saveCachedPosts(cacheKey, updatedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     },
     [state.posts],
@@ -1681,9 +1763,22 @@ export function useFeed(options: UseFeedOptions) {
 
       const config = feedConfigRef.current;
       if (config.enableCache && config.cacheKey) {
-        storageService
-          .saveCachedPosts(config.cacheKey, updatedPosts)
-          .catch((err) => console.error("[useFeed] Cache save error:", err));
+        const store = feedStoreRef.current;
+        const cacheKey = config.cacheKey;
+        if (store) {
+          const targetPost = updatedPosts.find((p) => p.id === targetPostId || p.reblog?.id === targetPostId);
+          if (targetPost) {
+            store.addPosts(cacheKey, [targetPost]).then(() => {
+              return store.getAllPosts(cacheKey);
+            }).then(postsToSave => {
+              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+            });
+          }
+        } else {
+          storageService
+            .saveCachedPosts(cacheKey, updatedPosts)
+            .catch((err) => console.error("[useFeed] Cache save error:", err));
+        }
       }
     },
     [state.posts, state.pendingNewPosts],

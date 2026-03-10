@@ -30,6 +30,8 @@ export interface IFeedPostStore {
     contextSize: number,
   ): Promise<GetSliceAroundResult>;
   hasPost(feedKey: string, postId: string): Promise<boolean>;
+  getAllPosts(feedKey: string): Promise<Post[]>;
+  removePost(feedKey: string, postId: string): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -119,6 +121,16 @@ function createInMemoryStore(): IFeedPostStore {
     async hasPost(feedKey: string, postId: string): Promise<boolean> {
       const posts = byFeed.get(feedKey) ?? [];
       return posts.some((p) => p.id === postId);
+    },
+
+    async getAllPosts(feedKey: string): Promise<Post[]> {
+      return getSorted(feedKey);
+    },
+
+    async removePost(feedKey: string, postId: string): Promise<void> {
+      const existing = byFeed.get(feedKey) ?? [];
+      const filtered = existing.filter((p) => p.id !== postId);
+      setSorted(feedKey, filtered);
     },
 
     async clearAll(): Promise<void> {
