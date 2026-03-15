@@ -65,6 +65,19 @@ jest.mock("react-native-gesture-handler", () => {
   };
 });
 
+/**
+ * Helper to flush multiple ticks of the microtask/timer queue.
+ * handleLongPress has 3 sequential awaits (isAvailableAsync → downloadAsync → shareAsync),
+ * each requiring a separate event loop tick to resolve.
+ */
+async function flushAsyncChain(ticks = 5) {
+  for (let i = 0; i < ticks; i++) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+}
+
 describe("ImageViewer full-size toggle", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -119,9 +132,11 @@ describe("ImageViewer full-size toggle", () => {
       fireEvent(getByTestId("image-viewer-image-pressable"), "onLongPress");
     });
 
-    await waitFor(() => expect(mockDownloadAsync).toHaveBeenCalledTimes(1));
+    // Flush detached async chain: isAvailableAsync → downloadAsync → shareAsync
+    await flushAsyncChain();
+
     expect(mockDownloadAsync).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(mockShareAsync).toHaveBeenCalledTimes(1));
+    expect(mockShareAsync).toHaveBeenCalledTimes(1);
     expect(mockShareAsync).toHaveBeenCalledWith(
       "file://cache/image-1.jpg",
       expect.objectContaining({
@@ -144,17 +159,26 @@ describe("ImageViewer full-size toggle", () => {
       <ImageViewer visible images={images} onClose={() => {}} />,
     );
 
+    // Fire first long press and flush so the handler reaches the pending downloadAsync
     await act(async () => {
       fireEvent(getByTestId("image-viewer-image-pressable"), "onLongPress");
     });
+    await flushAsyncChain();
+
+    // Fire second long press — should be blocked by isSavingRef guard
     await act(async () => {
       fireEvent(getByTestId("image-viewer-image-pressable"), "onLongPress");
     });
+    await flushAsyncChain();
 
     expect(mockDownloadAsync).toHaveBeenCalledTimes(1);
 
-    resolveDownload?.({ uri: "file://cache/image-1.jpg" });
+    // Resolve the pending download and flush the shareAsync call
+    await act(async () => {
+      resolveDownload?.({ uri: "file://cache/image-1.jpg" });
+    });
+    await flushAsyncChain();
 
-    await waitFor(() => expect(mockShareAsync).toHaveBeenCalledTimes(1));
+    expect(mockShareAsync).toHaveBeenCalledTimes(1);
   });
 });

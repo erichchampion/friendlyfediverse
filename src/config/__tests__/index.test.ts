@@ -32,8 +32,6 @@ describe("Application Configuration", () => {
   describe("API_CONFIG", () => {
     it("should have all required properties", () => {
       expect(API_CONFIG).toHaveProperty("DEFAULT_TIMEOUT");
-      expect(API_CONFIG).toHaveProperty("MAX_RETRIES");
-      expect(API_CONFIG).toHaveProperty("RETRY_DELAY");
     });
 
     it("should have all values as positive numbers", () => {

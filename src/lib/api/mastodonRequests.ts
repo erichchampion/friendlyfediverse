@@ -67,7 +67,7 @@ function buildTimelineIterator(
     throw new Error("Mastodon client not available");
   }
 
-  const p = { limit: params.limit ?? 20, ...params };
+  const p = { limit: params.limit ?? FEED_CONFIG.DEFAULT_PAGE_SIZE, ...params };
 
   switch (feedType) {
     case "home":

@@ -5,10 +5,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getActiveClient, withRetry, RequestPriority } from "@lib/api/client";
+import { transformStatus } from "@lib/api/timeline";
 import type { Post } from "@types";
 
 export interface UseCommentsOptions {
   postId: string;
+  parentVisibility?: "public" | "unlisted" | "private" | "direct";
   onCommentCountUpdate?: (count: number) => void;
   autoFetch?: boolean; // If false, comments are only fetched when refreshComments is called
 }
@@ -28,6 +30,7 @@ export interface UseCommentsResult {
  */
 export function useComments({
   postId,
+  parentVisibility = "public",
   onCommentCountUpdate,
   autoFetch = true,
 }: UseCommentsOptions): UseCommentsResult {
@@ -61,9 +64,9 @@ export function useComments({
         `comments_${postId}`, // Cache key for request deduplication
       );
 
-      // Get descendants (replies to this post)
-      const fetchedComments = context.descendants || [];
-      setComments(fetchedComments as any);
+      // Get descendants (replies to this post) and transform to our Post type
+      const fetchedComments = (context.descendants || []).map(transformStatus);
+      setComments(fetchedComments);
 
       // Notify parent of comment count
       if (onCommentCountUpdate) {
@@ -98,14 +101,15 @@ export function useComments({
             clientData.client.v1.statuses.create({
               status: content.trim(),
               inReplyToId: inReplyToId || postId,
-              visibility: "public",
+              visibility: parentVisibility,
             }),
           RequestPriority.HIGH,
         );
 
-        // Add new comment to the list
+        // Transform and add new comment to the list
+        const transformedComment = transformStatus(newComment);
         setComments(
-          (prevComments: any) => [newComment, ...prevComments] as any,
+          (prevComments) => [transformedComment, ...prevComments],
         );
 
         // Update comment count

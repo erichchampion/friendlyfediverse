@@ -11,8 +11,7 @@ export const APP_CONFIG = {
 
 export const API_CONFIG = {
   DEFAULT_TIMEOUT: 30000, // 30 seconds
-  MAX_RETRIES: 3,
-  RETRY_DELAY: 1000, // 1 second
+  // Note: Retry logic is configured via REQUEST_QUEUE_CONFIG in storage/constants.ts
 };
 
 export const CACHE_CONFIG = {

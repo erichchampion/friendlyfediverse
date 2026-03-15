@@ -14,8 +14,6 @@ export const ROUTES = {
   IMAGE_VIEWER: "/modals/image-viewer",
 } as const;
 
-export const CACHE_VERSION = 1;
-
 export const STORAGE_KEYS = {
   AUTH_STATE: "auth_state",
   ACTIVE_INSTANCE: "active_instance",

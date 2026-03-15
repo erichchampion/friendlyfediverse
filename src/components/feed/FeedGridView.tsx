@@ -1020,18 +1020,8 @@ export function FeedGridView({
         viewportHeight,
         contentHeight,
       };
-      // #region agent log
-      const deltaY = scrollY - prevScrollY;
-      if (Math.abs(deltaY) > viewportHeight * 0.5) {
-        console.log("[dbg][H10] large scroll delta", {
-          prevScrollY,
-          scrollY,
-          deltaY,
-          viewportHeight,
-          contentHeight,
-        });
-      }
-      // #endregion agent log
+
+
 
       // Note: Compensation is now handled in useLayoutEffect (before paint),
       // so we no longer need to fight momentum here.

@@ -91,32 +91,7 @@ export const trimPostsToLimit = (
     console.log(
       `[trimPostsToLimit] direction=${direction}, before=${posts.length}, after=${trimmed.length}, trimFromStart=${trimFromStart}`,
     );
-    // #region agent log
-    console.log("[dbg][H4] trim applied", {
-      direction,
-      before: posts.length,
-      after: trimmed.length,
-      trimFromStart,
-    });
-    fetch("http://127.0.0.1:7246/ingest/897a0049-40f7-4a93-8806-f7c551f8b499", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "useFeed.ts:trimPostsToLimit",
-        message: "Trim applied",
-        data: {
-          direction,
-          before: posts.length,
-          after: trimmed.length,
-          trimFromStart,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "pre-fix",
-        hypothesisId: "H4",
-      }),
-    }).catch(() => {});
-    // #endregion agent log
+
 
     return trimmed;
   }
@@ -618,6 +593,26 @@ export function useFeed(options: UseFeedOptions) {
   });
   feedConfigRef.current = { feedType, feedId, limit, cacheKey, enableCache };
 
+  /**
+   * Save posts to cache (async, fire-and-forget).
+   * Extracted from 8 duplicated blocks across loadFeed/refresh/loadMore/loadNewer/jumpToPost/loadFromAnchor/removePost/updatePost.
+   */
+  const saveToCache = useCallback((fallbackPosts: Post[]) => {
+    const config = feedConfigRef.current;
+    if (!config.enableCache || !config.cacheKey) return;
+    const store = feedStoreRef.current;
+    const cacheKey = config.cacheKey;
+    if (store) {
+      store.getAllPosts(cacheKey).then(postsToSave => {
+        storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
+      });
+    } else {
+      storageService
+        .saveCachedPosts(cacheKey, fallbackPosts)
+        .catch((err) => console.error("[useFeed] Cache save error:", err));
+    }
+  }, []);
+
   // Feed cache layer: use injected controller (tests) or create one when enableCache && cacheKey
   useEffect(() => {
     prefetchOlderInFlightRef.current = false;
@@ -819,19 +814,7 @@ export function useFeed(options: UseFeedOptions) {
         anchorPostId: null,
       });
 
-      if (config.enableCache && config.cacheKey) {
-        const store = feedStoreRef.current;
-        const cacheKey = config.cacheKey;
-        if (store) {
-          store.getAllPosts(cacheKey).then(postsToSave => {
-            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-          });
-        } else {
-          await storageService
-            .saveCachedPosts(cacheKey, boundedPosts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
-        }
-      }
+      saveToCache(boundedPosts);
     } catch (error) {
       console.error("[useFeed] Error loading feed:", error);
       dispatch({
@@ -878,19 +861,7 @@ export function useFeed(options: UseFeedOptions) {
       const hasMore = posts.length > 0;
       dispatch({ type: "REFRESH_SUCCESS", posts: boundedPosts, hasMore });
 
-      if (config.enableCache && config.cacheKey) {
-        const store = feedStoreRef.current;
-        const cacheKey = config.cacheKey;
-        if (store) {
-          store.getAllPosts(cacheKey).then(postsToSave => {
-            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-          });
-        } else {
-          await storageService
-            .saveCachedPosts(cacheKey, boundedPosts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
-        }
-      }
+      saveToCache(boundedPosts);
     } catch (error) {
       console.error("[useFeed] Error refreshing feed:", error);
       dispatch({
@@ -1153,14 +1124,10 @@ export function useFeed(options: UseFeedOptions) {
 
         // We jump the maxId directly, but we MUST keep hasMore=true so the next user scroll seamlessly builds
         // the new iterator utilizing the modified maxId.
-        lastFetchedOlderPostIdRef.current = null; 
+        // Store the jumped maxId in the ref so the next iterator creation uses it,
+        // WITHOUT mutating any post objects in React state.
+        lastFetchedOlderPostIdRef.current = jumpedMaxId;
         lastFetchedOlderPostIdAtIteratorCreationRef.current = null;
-        // Inject the synthetically jumped maxId back into the timeline state to force the next paginator creation to use it
-        if (state.posts.length > 0) {
-           const oldestRendered = state.posts[state.posts.length - 1];
-           // We technically mutate the post ID here just for the paginator's boundary, though it gets discarded internally
-           oldestRendered.id = jumpedMaxId;
-        }
 
         dispatch({
           type: "LOAD_MORE_SUCCESS",
@@ -1239,19 +1206,7 @@ export function useFeed(options: UseFeedOptions) {
       });
 
       // Save to cache asynchronously
-      if (config.enableCache && config.cacheKey) {
-        const store = feedStoreRef.current;
-        const cacheKey = config.cacheKey;
-        if (store) {
-          store.getAllPosts(cacheKey).then(postsToSave => {
-            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-          });
-        } else {
-          storageService
-            .saveCachedPosts(cacheKey, boundedPosts)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
-        }
-      }
+      saveToCache(boundedPosts);
     } catch (error) {
       console.error("[useFeed] Error loading more posts:", error);
       dispatch({
@@ -1475,19 +1430,7 @@ export function useFeed(options: UseFeedOptions) {
       dispatch({ type: "QUEUE_NEWER_POSTS", newPosts: uniqueNewPosts });
 
       // Save to cache asynchronously
-      if (config.enableCache && config.cacheKey) {
-        const store = feedStoreRef.current;
-        const cacheKey = config.cacheKey;
-        if (store) {
-          store.getAllPosts(cacheKey).then(postsToSave => {
-            storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-          });
-        } else {
-          storageService
-            .saveCachedPosts(cacheKey, boundedSnapshot)
-            .catch((err) => console.error("[useFeed] Cache save error:", err));
-        }
-      }
+      saveToCache(boundedSnapshot);
     } catch (error) {
       console.error("[useFeed] Error loading newer posts:", error);
       dispatch({
@@ -1625,19 +1568,7 @@ export function useFeed(options: UseFeedOptions) {
         lastJumpToPostRef.current = Date.now();
 
         // Save to cache
-        if (config.enableCache && config.cacheKey) {
-          const store = feedStoreRef.current;
-          const cacheKey = config.cacheKey;
-          if (store) {
-            store.getAllPosts(cacheKey).then(postsToSave => {
-              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-            });
-          } else {
-            await storageService
-              .saveCachedPosts(cacheKey, boundedPosts)
-              .catch((err) => console.error("[useFeed] Cache save error:", err));
-          }
-        }
+        saveToCache(boundedPosts);
       } catch (error) {
         console.error("[useFeed] Error jumping to post:", error);
         dispatch({
@@ -1724,19 +1655,7 @@ export function useFeed(options: UseFeedOptions) {
         });
         resetIterators();
 
-        if (config.enableCache && config.cacheKey) {
-          const store = feedStoreRef.current;
-          const cacheKey = config.cacheKey;
-          if (store) {
-            store.getAllPosts(cacheKey).then(postsToSave => {
-              storageService.saveCachedPosts(cacheKey, postsToSave).catch((err) => console.error("[useFeed] Cache save error:", err));
-            });
-          } else {
-            await storageService
-              .saveCachedPosts(cacheKey, posts)
-              .catch((err) => console.error("[useFeed] Cache save error:", err));
-          }
-        }
+        saveToCache(posts);
       } catch (error) {
         console.error("[useFeed] Error loading from anchor:", error);
         dispatch({
