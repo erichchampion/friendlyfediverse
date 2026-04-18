@@ -426,12 +426,15 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     paddingHorizontal: 16,
-    minHeight: 200,
+    flex: 1,
+    minHeight: 150,
   },
   textInput: {
     fontSize: 16,
     lineHeight: 24,
     textAlignVertical: "top",
+    flex: 1,
+    minHeight: 120,
   },
   mediaContainer: {
     flexDirection: "row",
