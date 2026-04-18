@@ -15,6 +15,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import { useActionSheet } from "@expo/react-native-action-sheet";
 import { useTheme } from "@contexts/ThemeContext";
 import { useAuth } from "@contexts/AuthContext";
 import { useSettings } from "@hooks/useSettings";
@@ -42,6 +43,7 @@ export default function ComposeModal() {
     replyToUsername?: string;
     replyToContent?: string;
   }>();
+  const { showActionSheetWithOptions } = useActionSheet();
   const { colors } = useTheme();
   const { user } = useAuth();
   const { highQualityUploads } = useSettings();
@@ -70,24 +72,34 @@ export default function ComposeModal() {
   const handleClose = () => {
     const dismiss = () => {
       try {
-        router.back();
+        const canGoBack =
+          typeof router.canGoBack === "function"
+            ? router.canGoBack()
+            : true;
+        if (canGoBack) {
+          router.back();
+        } else {
+          router.replace("/(tabs)/feed/home");
+        }
       } catch (e) {
         router.replace("/(tabs)/feed/home");
       }
     };
 
     if (content.trim() || mediaAttachments.length > 0) {
-      Alert.alert(
-        "Discard Post?",
-        "Are you sure you want to discard this post?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Discard",
-            style: "destructive",
-            onPress: dismiss,
-          },
-        ],
+      showActionSheetWithOptions(
+        {
+          title: "Discard Post?",
+          message: "Are you sure you want to discard this post?",
+          options: ["Cancel", "Discard"],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            dismiss();
+          }
+        },
       );
     } else {
       dismiss();
