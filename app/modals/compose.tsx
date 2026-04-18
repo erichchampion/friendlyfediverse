@@ -69,10 +69,10 @@ export default function ComposeModal() {
 
   const handleClose = () => {
     const dismiss = () => {
-      if (router.canGoBack()) {
+      try {
         router.back();
-      } else {
-        router.replace("/");
+      } catch (e) {
+        router.replace("/(tabs)/feed/home");
       }
     };
 
