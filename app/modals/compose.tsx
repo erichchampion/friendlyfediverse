@@ -68,6 +68,14 @@ export default function ComposeModal() {
   const remainingChars = CHARACTER_LIMIT - content.length;
 
   const handleClose = () => {
+    const dismiss = () => {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/");
+      }
+    };
+
     if (content.trim() || mediaAttachments.length > 0) {
       Alert.alert(
         "Discard Post?",
@@ -77,12 +85,12 @@ export default function ComposeModal() {
           {
             text: "Discard",
             style: "destructive",
-            onPress: () => router.back(),
+            onPress: dismiss,
           },
         ],
       );
     } else {
-      router.back();
+      dismiss();
     }
   };
 
@@ -179,7 +187,8 @@ export default function ComposeModal() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
       {/* Header */}
       <View
@@ -380,6 +389,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    flexGrow: 1,
   },
   userInfo: {
     flexDirection: "row",
@@ -427,14 +437,14 @@ const styles = StyleSheet.create({
   inputContainer: {
     paddingHorizontal: 16,
     flex: 1,
-    minHeight: 150,
+    minHeight: 200,
   },
   textInput: {
     fontSize: 16,
     lineHeight: 24,
     textAlignVertical: "top",
     flex: 1,
-    minHeight: 120,
+    minHeight: 180,
   },
   mediaContainer: {
     flexDirection: "row",
